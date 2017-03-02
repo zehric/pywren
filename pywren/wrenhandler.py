@@ -102,6 +102,9 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
     return False
 
 def aws_lambda_handler(event, context):
+    raise Exception("TEST_DLQ",
+                    "TESTING DLQ")
+
     logger.setLevel(logging.INFO)
     context_dict = {
         'aws_request_id' : context.aws_request_id, 
@@ -318,14 +321,17 @@ def generic_handler(event, context_dict):
         response_status['host_submit_time'] = event['host_submit_time']
         response_status['server_info'] = get_server_info()
 
-        response_status.update(context_dict) 
+        response_status.update(context_dict)
+        success_key_full = status_key[1] + "-success.json"
+        s3.meta.client.put_object(Bucket=status_key[0], Key=success_key_full,
+                                  Body=json.dumps(response_status))
     except Exception as e:
-        # internal runtime exceptions
-        response_status['exception'] = str(e)
-        response_status['exception_args'] = e.args
+            # internal runtime exceptions
+            response_status['exception'] = str(e)
+            response_status['exception_args'] = e.args
     finally:
-
-        s3.meta.client.put_object(Bucket=status_key[0], Key=status_key[1], 
+        status_key_full = status_key[1] + ".json.1"
+        s3.meta.client.put_object(Bucket=status_key[0], Key=status_key_full,
                                   Body=json.dumps(response_status))
     
 

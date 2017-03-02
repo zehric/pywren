@@ -196,6 +196,7 @@ class Executor(object):
                              self.aws_region)
 
         fut._set_state(JobState.invoked)
+        fut.attempts_made += 1
 
         return fut
         
@@ -453,18 +454,19 @@ class Executor(object):
 # this really should not be a global singleton FIXME
 global_s3_client = boto3.client('s3') # , region_name = AWS_REGION)
     
-def get_call_status(callset_id, call_id, 
+def get_call_status(callset_id, call_id, attempt_id,
                     AWS_S3_BUCKET = wrenconfig.AWS_S3_BUCKET, 
                     AWS_S3_PREFIX = wrenconfig.AWS_S3_PREFIX, 
                     AWS_REGION = wrenconfig.AWS_REGION, s3=None):
-    s3_data_key, s3_output_key, s3_status_key = s3util.create_keys(AWS_S3_BUCKET, 
+    s3_data_key, s3_output_key, s3_status_key_prefix = s3util.create_keys(AWS_S3_BUCKET,
                                                                     AWS_S3_PREFIX, 
                                                                     callset_id, call_id)
     if s3 is None:
         s3 = global_s3_client
     
     try:
-        r = s3.get_object(Bucket = s3_status_key[0], Key = s3_status_key[1])
+        status_key_name = s3_status_key_prefix[1] + "." + attempt_id
+        r = s3.get_object(Bucket = s3_status_key_prefix[0], Key = status_key_name)
         result_json = r['Body'].read()
         return json.loads(result_json.decode('ascii'))
     
@@ -508,6 +510,7 @@ class ResponseFuture(object):
         self._invoke_metadata = invoke_metadata.copy()
         
         self.status_query_count = 0
+        self.attempts_made = 0
         
     def _set_state(self, new_state):
         ## FIXME add state machine
@@ -561,7 +564,7 @@ class ResponseFuture(object):
                 return None
 
         
-        call_status = get_call_status(self.callset_id, self.call_id, 
+        call_status = get_call_status(self.callset_id, self.call_id, str(self.attempts_made),
                                       AWS_S3_BUCKET = self.s3_bucket, 
                                       AWS_S3_PREFIX = self.s3_prefix, 
                                       AWS_REGION = self.aws_region)
@@ -577,7 +580,7 @@ class ResponseFuture(object):
 
         while call_status is None:
             time.sleep(self.GET_RESULT_SLEEP_SECS)
-            call_status = get_call_status(self.callset_id, self.call_id, 
+            call_status = get_call_status(self.callset_id, self.call_id, str(self.attempts_made),
                                           AWS_S3_BUCKET = self.s3_bucket, 
                                           AWS_S3_PREFIX = self.s3_prefix, 
                                           AWS_REGION = self.aws_region)
@@ -714,6 +717,10 @@ def wait(fs, return_when=ALL_COMPLETED, THREADPOOL_SIZE=64,
         raise ValueError()
 
 def _wait(fs, THREADPOOL_SIZE):
+    fs_success, fs_running, fs_failed = _wait_status(fs, THREADPOOL_SIZE)
+    return fs_success, fs_running + fs_failed
+
+def _wait_status(fs, THREADPOOL_SIZE):
     """
     internal function that performs the majority of the WAIT task
     work. 
@@ -735,25 +742,35 @@ def _wait(fs, THREADPOOL_SIZE):
     callset_id = present_callsets.pop() # FIXME assume only one
     f0 = not_done_futures[0] # This is a hack too
 
-    callids_done = s3util.get_callset_done(f0.s3_bucket, 
+    succeded_calls, other_calls_attempts = s3util.get_callset_done(f0.s3_bucket,
                                            f0.s3_prefix,
                                            callset_id)
-    callids_done = set(callids_done)
+    succeded_calls = set(succeded_calls)
 
-    fs_dones = []
-    fs_notdones = []
+    fs_success = []
+    fs_failed = []
+    fs_running = []
 
     f_to_wait_on = []
     for f in fs:
         if f._state in [JobState.success, JobState.error]:
             # done, don't need to do anything
-            fs_dones.append(f)
-        else:
-            if f.call_id in callids_done:
-                f_to_wait_on.append(f)
-                fs_dones.append(f)
+            if f._state == JobState.success:
+                fs_success.append(f)
             else:
-                fs_notdones.append(f)
+                fs_failed.append(f)
+        else: # not checked by results yet
+            if f.call_id in succeded_calls:
+                f_to_wait_on.append(f)
+                fs_success.append(f)
+            elif f.call_id in other_calls_attempts:
+                n_done = other_calls_attempts[f.call_id]
+                if f.attempts_made <= n_done:
+                    fs_failed.append(f)
+                else:
+                    fs_running.append(f)
+            else: # not found
+                fs_running.append(f)
     def test(f):
         f.result(throw_except=False)
     pool = ThreadPool(THREADPOOL_SIZE)
@@ -762,7 +779,7 @@ def _wait(fs, THREADPOOL_SIZE):
     pool.close()
     pool.join()
 
-    return fs_dones, fs_notdones
+    return fs_success, fs_running, fs_failed
 
     
 def log_test():
