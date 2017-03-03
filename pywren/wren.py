@@ -137,11 +137,14 @@ class Executor(object):
 
     def invoke_with_keys(self, s3_func_key, s3_data_key, s3_output_key, 
                          s3_status_key, 
-                         callset_id, call_id, extra_env, 
+                         callset_id, call_id, attempt_id, extra_env,
                          extra_meta, data_byte_range, use_cached_runtime, 
                          host_job_meta, job_max_runtime, 
                          overwrite_invoke_args = None):
-    
+
+        # if attempt_id = 0
+        # this is a new call_id
+
         arg_dict = {'func_key' : s3_func_key, 
                     'data_key' : s3_data_key, 
                     'output_key' : s3_output_key, 
@@ -149,7 +152,8 @@ class Executor(object):
                     'callset_id': callset_id, 
                     'job_max_runtime' : job_max_runtime, 
                     'data_byte_range' : data_byte_range, 
-                    'call_id' : call_id, 
+                    'call_id' : call_id,
+                    'attempt_id': attempt_id,
                     'use_cached_runtime' : use_cached_runtime, 
                     'runtime_s3_bucket' : self.config['runtime']['s3_bucket'], 
                     'runtime_s3_key' : self.config['runtime']['s3_key'], 
@@ -170,7 +174,8 @@ class Executor(object):
         host_submit_time = time.time()
         arg_dict['host_submit_time'] = host_submit_time
 
-        logger.info("call_async {} {} lambda invoke ".format(callset_id, call_id))
+        logger.info("call_async {} {} attempt {} lambda invoke"
+                    .format(callset_id, call_id, attempt_id))
         lambda_invoke_time_start = time.time()
 
         # overwrite explicit args, mostly used for testing via injection
@@ -180,25 +185,23 @@ class Executor(object):
         # do the invocation
         self.invoker.invoke(arg_dict)
 
-        host_job_meta['lambda_invoke_timestamp'] = lambda_invoke_time_start
-        host_job_meta['lambda_invoke_time'] = time.time() - lambda_invoke_time_start
+        logger.info("call_async {} {} attempt {} lambda invoke complete"
+                    .format(callset_id, call_id, attempt_id))
 
+        if attempt_id == 0: # return future if this is the first attempt
+            host_job_meta['lambda_invoke_timestamp'] = lambda_invoke_time_start
+            host_job_meta['lambda_invoke_time'] = time.time() - lambda_invoke_time_start
+            host_job_meta.update(self.invoker.config())
+            host_job_meta.update(arg_dict)
 
-        host_job_meta.update(self.invoker.config())
+            fut = ResponseFuture(call_id, callset_id, host_job_meta,
+                                 self.s3_bucket, self.s3_prefix,
+                                 self.aws_region)
 
-        logger.info("call_async {} {} lambda invoke complete".format(callset_id, call_id))
+            fut._set_state(JobState.invoked)
+            fut.attempts_made = 1
 
-        
-        host_job_meta.update(arg_dict)
-
-        fut = ResponseFuture(call_id, callset_id, host_job_meta, 
-                             self.s3_bucket, self.s3_prefix, 
-                             self.aws_region)
-
-        fut._set_state(JobState.invoked)
-        fut.attempts_made += 1
-
-        return fut
+            return fut
         
     def call_async(self, func, data, extra_env = None, 
                     extra_meta=None):
@@ -270,6 +273,71 @@ class Executor(object):
 
         return callset_id, s3_agg_data_key, s3_func_key, data_strs, host_job_meta, agg_data_ranges
 
+    def my_invoke_calls(self, callset_id, call_indices, s3_agg_data_key, s3_func_key, data_strs,
+                     host_job_meta, agg_data_ranges, extra_env = None, extra_meta = None,
+                     invoke_pool_threads=64, use_cached_runtime=True, overwrite_invoke_args = None):
+
+        def invoke(data_str, callset_id, call_id, attempt_id, s3_func_key, host_job_meta,
+                   s3_agg_data_key = None, data_byte_range=None ):
+            s3_data_key, s3_output_key, s3_status_key \
+                = s3util.create_keys(self.s3_bucket,
+                                     self.s3_prefix,
+                                     callset_id, call_id)
+
+            host_job_meta['job_invoke_timestamp'] = time.time()
+
+            if s3_agg_data_key is None:
+                data_upload_time = time.time()
+                self.put_data(s3_data_key, data_str,
+                              callset_id, call_id)
+                data_upload_time = time.time() - data_upload_time
+                host_job_meta['data_upload_time'] = data_upload_time
+                host_job_meta['data_upload_timestamp'] = time.time()
+
+                data_key = s3_data_key
+            else:
+                data_key = s3_agg_data_key
+
+            return self.invoke_with_keys(s3_func_key, data_key,
+                                         s3_output_key,
+                                         s3_status_key,
+                                         callset_id, call_id, attempt_id, extra_env,
+                                         extra_meta, data_byte_range,
+                                         use_cached_runtime, host_job_meta.copy(),
+                                         self.job_max_runtime,
+                                         overwrite_invoke_args = overwrite_invoke_args)
+
+        pool = ThreadPool(min(invoke_pool_threads, len(call_indices)))
+        call_result_objs = []
+        for (i, attempt_id) in call_indices:
+            call_id = "{:05d}".format(i)
+
+            data_byte_range = None
+            if s3_agg_data_key is not None:
+                data_byte_range = agg_data_ranges[i]
+
+
+            cb = pool.apply_async(invoke, (data_strs[i], callset_id,
+                                           call_id, attempt_id, s3_func_key,
+                                           host_job_meta.copy(),
+                                           s3_agg_data_key,
+                                           data_byte_range))
+
+            logger.info("map {} {} apply async".format(callset_id, call_id))
+
+            call_result_objs.append(cb)
+
+        res = [c.get() for c in call_result_objs if c]
+        pool.close()
+        pool.join()
+        logger.info("map invoked {} {} pool join".format(callset_id, call_id))
+
+        # FIXME take advantage of the callset to return a lot of these
+
+        # note these are just the invocation futures
+
+        return res
+
 
     def invoke_calls(self, callset_id, call_indices, s3_agg_data_key, s3_func_key, data_strs,
                      host_job_meta, agg_data_ranges, extra_env = None, extra_meta = None,
@@ -299,7 +367,7 @@ class Executor(object):
             return self.invoke_with_keys(s3_func_key, data_key,
                                          s3_output_key,
                                          s3_status_key,
-                                         callset_id, call_id, extra_env,
+                                         callset_id, call_id, 0, extra_env,
                                          extra_meta, data_byte_range,
                                          use_cached_runtime, host_job_meta.copy(),
                                          self.job_max_runtime,
@@ -394,6 +462,51 @@ class Executor(object):
         wait(fs_notdones, return_when=ALL_COMPLETED)
         return res
 
+    def map_sync_with_rate_and_retries(self, func, iterdata, rate = 100, extra_env = None,
+                                    extra_meta = None,
+                           invoke_pool_threads=64, data_all_as_one=True,
+                           use_cached_runtime=True, overwrite_invoke_args = None):
+        assert rate > 0
+
+        calls_queue = [(id, 0, None) for id in range(len(list(iterdata)))]
+        num_available_workers = rate
+        fs_running = []
+        res = []
+
+        callset_id, s3_agg_data_key, s3_func_key, data_strs, host_job_meta, agg_data_ranges \
+            = self.prepare(func, iterdata, data_all_as_one)
+
+        while len(calls_queue) > 0 or len(fs_running) > 0:
+            # invoking more calls
+            if num_available_workers > 0 and len(calls_queue) > 0:
+                num_calls_to_invoke = min(num_available_workers, len(calls_queue))
+                # invoke according to the order
+                custom_ids = [(c[0], c[1]) for c in calls_queue[:num_calls_to_invoke]]
+
+                invoked = self.my_invoke_calls(callset_id, custom_ids, s3_agg_data_key,
+                                            s3_func_key, data_strs, host_job_meta, agg_data_ranges,
+                                            extra_env, extra_meta, invoke_pool_threads, use_cached_runtime,
+                                            overwrite_invoke_args)
+                new_fs = [fs for fs in invoked if fs]
+                old_fs = [c[2] for c in calls_queue[:num_calls_to_invoke] if c[2]]
+                for fs in old_fs:
+                    fs.attempts_made += 1
+                res += new_fs
+                fs_running += new_fs + old_fs
+                calls_queue = calls_queue[num_calls_to_invoke:]
+                num_available_workers -= num_calls_to_invoke
+            # wait for available slots
+            else:
+                fs_success, fs_running, fs_failed = my_wait(fs_running,
+                                                              return_when=ANY_COMPLETED)
+                # print "len of {} {} {} ".format(len(fs_success), len(fs_running), len(fs_failed))
+                calls_queue += [(int(f.call_id), f.attempts_made, f) for f in fs_failed]
+                num_available_workers += len(fs_success + fs_failed)
+
+        # finally wait until all work finish
+        my_wait(fs_running, return_when=ALL_COMPLETED)
+        return res
+
     def reduce(self, function, list_of_futures, 
                extra_env = None, extra_meta = None):
         """
@@ -454,7 +567,7 @@ class Executor(object):
 # this really should not be a global singleton FIXME
 global_s3_client = boto3.client('s3') # , region_name = AWS_REGION)
     
-def get_call_status(callset_id, call_id, attempt_id,
+def get_call_status(callset_id, call_id, attempts_made,
                     AWS_S3_BUCKET = wrenconfig.AWS_S3_BUCKET, 
                     AWS_S3_PREFIX = wrenconfig.AWS_S3_PREFIX, 
                     AWS_REGION = wrenconfig.AWS_REGION, s3=None):
@@ -465,7 +578,7 @@ def get_call_status(callset_id, call_id, attempt_id,
         s3 = global_s3_client
     
     try:
-        status_key_name = s3_status_key_prefix[1] + "." + attempt_id
+        status_key_name = s3_status_key_prefix[1] + "-success.json"
         r = s3.get_object(Bucket = s3_status_key_prefix[0], Key = status_key_name)
         result_json = r['Body'].read()
         return json.loads(result_json.decode('ascii'))
@@ -564,7 +677,7 @@ class ResponseFuture(object):
                 return None
 
         
-        call_status = get_call_status(self.callset_id, self.call_id, str(self.attempts_made),
+        call_status = get_call_status(self.callset_id, self.call_id, self.attempts_made,
                                       AWS_S3_BUCKET = self.s3_bucket, 
                                       AWS_S3_PREFIX = self.s3_prefix, 
                                       AWS_REGION = self.aws_region)
@@ -580,7 +693,7 @@ class ResponseFuture(object):
 
         while call_status is None:
             time.sleep(self.GET_RESULT_SLEEP_SECS)
-            call_status = get_call_status(self.callset_id, self.call_id, str(self.attempts_made),
+            call_status = get_call_status(self.callset_id, self.call_id, self.attempts_made,
                                           AWS_S3_BUCKET = self.s3_bucket, 
                                           AWS_S3_PREFIX = self.s3_prefix, 
                                           AWS_REGION = self.aws_region)
@@ -651,7 +764,8 @@ class ResponseFuture(object):
                         call_invoker_result['exc_traceback'])
             else:
                 # reraise the exception
-                reraise(*self._traceback)
+                # reraise(*self._traceback)
+                print("Failed call {} {} {}".format(self.callset_id, self.call_id, self.attempts_made))
         else:
             return None  # nothing, don't raise, no value
             
@@ -716,9 +830,57 @@ def wait(fs, return_when=ALL_COMPLETED, THREADPOOL_SIZE=64,
     else:
         raise ValueError()
 
+def my_wait(fs, return_when=ALL_COMPLETED, THREADPOOL_SIZE=64,
+         WAIT_DUR_SEC=5):
+    """
+    this will eventually provide an optimization for checking if a large
+    number of futures have completed without too much network traffic
+    by exploiting the callset
+
+    From python docs:
+
+    Wait for the Future instances (possibly created by different Executor
+    instances) given by fs to complete. Returns a named 2-tuple of
+    sets. The first set, named "done", contains the futures that completed
+    (finished or were cancelled) before the wait completed. The second
+    set, named "not_done", contains uncompleted futures.
+
+
+    http://pythonhosted.org/futures/#concurrent.futures.wait
+
+    """
+    N = len(fs)
+
+    if return_when==ALL_COMPLETED:
+        result_count = 0
+        while result_count < N:
+
+            fs_dones, fs_notdones = _wait(fs, THREADPOOL_SIZE)
+            result_count = len(fs_dones)
+
+            if result_count == N:
+                return fs_dones, fs_notdones
+            else:
+                time.sleep(WAIT_DUR_SEC)
+
+    elif return_when == ANY_COMPLETED:
+        while True:
+            fs_success, fs_running, fs_failed = _wait_status(fs, THREADPOOL_SIZE)
+
+            if len(fs_success + fs_failed) != 0:
+                return fs_success, fs_running, fs_failed
+            else:
+                time.sleep(WAIT_DUR_SEC)
+
+    elif return_when == ALWAYS:
+        return _wait(fs, THREADPOOL_SIZE)
+    else:
+        raise ValueError()
+
+
 def _wait(fs, THREADPOOL_SIZE):
     fs_success, fs_running, fs_failed = _wait_status(fs, THREADPOOL_SIZE)
-    return fs_success, fs_running + fs_failed
+    return fs_success + fs_failed, fs_running
 
 def _wait_status(fs, THREADPOOL_SIZE):
     """
@@ -753,12 +915,10 @@ def _wait_status(fs, THREADPOOL_SIZE):
 
     f_to_wait_on = []
     for f in fs:
-        if f._state in [JobState.success, JobState.error]:
+        if f._state == JobState.success:
             # done, don't need to do anything
             if f._state == JobState.success:
                 fs_success.append(f)
-            else:
-                fs_failed.append(f)
         else: # not checked by results yet
             if f.call_id in succeded_calls:
                 f_to_wait_on.append(f)
@@ -778,6 +938,13 @@ def _wait_status(fs, THREADPOOL_SIZE):
 
     pool.close()
     pool.join()
+
+    # print "start"
+    # print fs_success
+    # print fs_running
+    # print fs_failed
+    # print "end"
+    assert(len(fs_success + fs_running + fs_failed) == len(fs))
 
     return fs_success, fs_running, fs_failed
 

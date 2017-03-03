@@ -97,7 +97,7 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
 
     condatar.extractall(runtime_etag_dir)
 
-    # final operation 
+    # final operation
     os.symlink(expected_target, CONDA_RUNTIME_DIR)
     return False
 
@@ -247,6 +247,7 @@ def generic_handler(event, context_dict):
 
         call_id = event['call_id']
         callset_id = event['callset_id']
+        attempt_id = event['attempt_id']
         response_status['call_id'] = call_id
         response_status['callset_id'] = callset_id
 
@@ -305,6 +306,7 @@ def generic_handler(event, context_dict):
 
         s3.meta.client.upload_file(output_filename, output_key[0], 
                                    output_key[1])
+
         logger.debug("output uploaded to %s %s", output_key[0], output_key[1])
 
         end_time = time.time()
@@ -319,15 +321,19 @@ def generic_handler(event, context_dict):
         response_status['server_info'] = get_server_info()
 
         response_status.update(context_dict)
-        success_key_full = status_key[1] + "-success.json"
-        s3.meta.client.put_object(Bucket=status_key[0], Key=success_key_full,
+
+        results = pickle.load(open(output_filename, 'rb'))
+        if results["success"]:
+            status_key_full = status_key[1] + "-success.json"
+            s3.meta.client.put_object(Bucket=status_key[0], Key=status_key_full,
                                   Body=json.dumps(response_status))
+
     except Exception as e:
-            # internal runtime exceptions
-            response_status['exception'] = str(e)
-            response_status['exception_args'] = e.args
+                # internal runtime exceptions
+                response_status['exception'] = str(e)
+                response_status['exception_args'] = e.args
     finally:
-        status_key_full = status_key[1] + ".json.1"
+        status_key_full = status_key[1] + ".json." + str(attempt_id)
         s3.meta.client.put_object(Bucket=status_key[0], Key=status_key_full,
                                   Body=json.dumps(response_status))
     
