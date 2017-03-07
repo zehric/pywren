@@ -570,8 +570,8 @@ class Executor(object):
                 calls_queue += [(int(f.call_id), f.attempts_made, f) for f in fs_failed]
 
                 total_fails += len(fs_failed)
-                logger.warn("{} succeeded, {} in queue, {} running, {} fails.".format(
-                    len(job_success), len(calls_queue), len(fs_running), total_fails))
+                logger.warn("{} succeeded, {} in queue, {} running, {} fails. rate = {}".format(
+                    len(job_success), len(calls_queue), len(fs_running), total_fails, rate))
 
                 for f in fs_failed:
                     if f.attempts_made > 2:
