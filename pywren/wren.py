@@ -521,6 +521,82 @@ class Executor(object):
         # my_wait(fs_running, return_when=ALL_COMPLETED)
         return job_success
 
+    def map_sync_with_rate_and_retries_and_adapt(self, func, iterdata, inital_rate = 100,
+                                                 extra_env = None,
+                                       extra_meta = None,
+                                       invoke_pool_threads=64, data_all_as_one=True,
+                                       use_cached_runtime=True, overwrite_invoke_args = None):
+        assert inital_rate > 0
+        rate = inital_rate
+
+        calls_queue = [(id, 0, None) for id in range(len(list(iterdata)))]
+        num_available_workers = rate
+        fs_running = []
+        res = []
+
+        callset_id, s3_agg_data_key, s3_func_key, data_strs, host_job_meta, agg_data_ranges \
+            = self.prepare(func, iterdata, data_all_as_one)
+
+        job_success = []
+        control_fs = set([])
+        total_fails = 0
+        while len(calls_queue) > 0 or len(fs_running) > 0:
+            # invoking more calls
+            if num_available_workers > 0 and len(calls_queue) > 0:
+                num_calls_to_invoke = min(num_available_workers, len(calls_queue))
+                # invoke according to the order
+                custom_ids = [(c[0], c[1]) for c in calls_queue[:num_calls_to_invoke]]
+
+                invoked = self.my_invoke_calls(callset_id, custom_ids, s3_agg_data_key,
+                                               s3_func_key, data_strs, host_job_meta, agg_data_ranges,
+                                               extra_env, extra_meta, invoke_pool_threads, use_cached_runtime,
+                                               overwrite_invoke_args)
+                new_fs = [fs for fs in invoked if fs]
+                old_fs = [c[2] for c in calls_queue[:num_calls_to_invoke] if c[2]]
+                control_fs.update(set(new_fs + old_fs))
+                for fs in old_fs:
+                    fs.attempts_made += 1
+                res += new_fs
+                fs_running += new_fs + old_fs
+                calls_queue = calls_queue[num_calls_to_invoke:]
+                num_available_workers -= num_calls_to_invoke
+            # wait for available slots
+            else:
+                fs_success, fs_running, fs_failed = my_wait(fs_running,
+                                                            return_when=ANY_COMPLETED)
+                job_success += fs_success[:]
+                # print "len of {} {} {} ".format(len(fs_success), len(fs_running), len(fs_failed))
+
+                calls_queue += [(int(f.call_id), f.attempts_made, f) for f in fs_failed]
+
+                total_fails += len(fs_failed)
+                logger.warn("{} succeeded, {} in queue, {} running, {} fails.".format(
+                    len(job_success), len(calls_queue), len(fs_running), total_fails))
+
+                for f in fs_failed:
+                    if f.attempts_made > 2:
+                        logger.warn("Job failed, return currently successful calls.")
+                        return job_success
+
+                if len(control_fs.intersection(set(fs_failed))) > 0:
+                    rate /= 2
+                    num_available_workers -= rate
+                    if rate == 0:
+                        logger.warn("Rate == 0, return.")
+                        return job_success
+                    control_fs.difference_update(set(fs_running))
+                    # all running fs are not considered
+                elif len(control_fs.intersection(set(fs_success))) > 0:
+                    num_success = len(control_fs.intersection(set(fs_success)))
+                    rate += num_success
+                    num_available_workers += num_success
+                control_fs.difference_update(set(fs_failed + fs_success))
+                num_available_workers += len(fs_success + fs_failed)
+
+        # finally wait until all work finish
+        # my_wait(fs_running, return_when=ALL_COMPLETED)
+        return job_success
+
     def reduce(self, function, list_of_futures, 
                extra_env = None, extra_meta = None):
         """
