@@ -476,6 +476,7 @@ class Executor(object):
         callset_id, s3_agg_data_key, s3_func_key, data_strs, host_job_meta, agg_data_ranges \
             = self.prepare(func, iterdata, data_all_as_one)
 
+        job_success = []
         while len(calls_queue) > 0 or len(fs_running) > 0:
             # invoking more calls
             if num_available_workers > 0 and len(calls_queue) > 0:
@@ -499,13 +500,18 @@ class Executor(object):
             else:
                 fs_success, fs_running, fs_failed = my_wait(fs_running,
                                                               return_when=ANY_COMPLETED)
+                job_success += fs_success[:]
                 # print "len of {} {} {} ".format(len(fs_success), len(fs_running), len(fs_failed))
+                for f in fs_failed:
+                    if f.attempts_made > 2:
+                        logger.warn("Job failed, return currently successful calls.")
+                        return job_success
                 calls_queue += [(int(f.call_id), f.attempts_made, f) for f in fs_failed]
                 num_available_workers += len(fs_success + fs_failed)
 
         # finally wait until all work finish
-        my_wait(fs_running, return_when=ALL_COMPLETED)
-        return res
+        # my_wait(fs_running, return_when=ALL_COMPLETED)
+        return job_success
 
     def reduce(self, function, list_of_futures, 
                extra_env = None, extra_meta = None):
