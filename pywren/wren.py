@@ -477,6 +477,7 @@ class Executor(object):
             = self.prepare(func, iterdata, data_all_as_one)
 
         job_success = []
+        total_fails = 0
         while len(calls_queue) > 0 or len(fs_running) > 0:
             # invoking more calls
             if num_available_workers > 0 and len(calls_queue) > 0:
@@ -502,11 +503,18 @@ class Executor(object):
                                                               return_when=ANY_COMPLETED)
                 job_success += fs_success[:]
                 # print "len of {} {} {} ".format(len(fs_success), len(fs_running), len(fs_failed))
+
+                calls_queue += [(int(f.call_id), f.attempts_made, f) for f in fs_failed]
+
+                total_fails += len(fs_failed)
+                logger.warn("{} succeeded, {} in queue, {} running, {} fails.".format(
+                    len(job_success), len(calls_queue), len(fs_running), total_fails))
+
                 for f in fs_failed:
                     if f.attempts_made > 2:
                         logger.warn("Job failed, return currently successful calls.")
                         return job_success
-                calls_queue += [(int(f.call_id), f.attempts_made, f) for f in fs_failed]
+
                 num_available_workers += len(fs_success + fs_failed)
 
         # finally wait until all work finish
