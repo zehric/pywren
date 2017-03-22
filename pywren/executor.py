@@ -49,20 +49,20 @@ class Executor(object):
             raise Exception("The indicated runtime: s3://{}/{} is not approprite for this python version".format(runtime_s3_bucket, runtime_s3_key))
 
     def create_mod_data(self, mod_paths):
-
         module_data = {}
         # load mod paths
         for m in mod_paths:
             if os.path.isdir(m):
                 files = glob2.glob(os.path.join(m, "**/*.py"))
-                pkg_root = os.path.dirname(m)
+                pkg_root = os.path.abspath(os.path.dirname(m))
             else:
-                pkg_root = os.path.dirname(m)
+                pkg_root = os.path.abspath(os.path.dirname(m))
                 files = [m]
             for f in files:
-                dest_filename = f[len(pkg_root)+1:]
+                f = os.path.abspath(f)
                 mod_str = open(f, 'rb').read()
-                module_data[f[len(pkg_root)+1:]] = mod_str.decode('utf-8')
+                dest_filename = f[len(pkg_root)+1:]
+                module_data[dest_filename] = mod_str.decode('utf-8')
 
         return module_data
 
