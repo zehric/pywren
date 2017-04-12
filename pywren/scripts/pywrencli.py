@@ -14,6 +14,7 @@ import io
 import time 
 import botocore
 from pywren import ec2standalone
+from multiprocessing.pool import ThreadPool
 
 
 @click.group()
@@ -164,6 +165,69 @@ def create_bucket(ctx):
     if region == 'us-east-1':
         kwargs = {}
     s3.create_bucket(Bucket=config['s3']['bucket'], **kwargs)
+
+@click.command()
+@click.pass_context
+def create_bucket(ctx):
+    """
+
+    """
+    config_filename = ctx.obj['config_filename']
+    config = pywren.wrenconfig.load(config_filename)
+
+    s3 = boto3.client("s3")
+    region = config['account']['aws_region']
+    kwargs = {'CreateBucketConfiguration': {'LocationConstraint': region}}
+    if region == 'us-east-1':
+        kwargs = {}
+    s3.create_bucket(Bucket=config['s3']['bucket'], **kwargs)
+
+
+@click.command()
+@click.pass_context
+@click.option('--source_bucket', default='', type=str,
+              help='source bucket')
+@click.option('--dest_bucket', default='', type=str,
+              help='destination bucket')
+def copy_runtime(ctx, source_bucket, dest_bucket):
+    """
+
+    """
+    if source_bucket == '':
+        print("Please specify source bucket by --source_bucket.")
+        return
+    if dest_bucket == '':
+        print("Please specify destination bucket by --dest_bucket.")
+        return
+    config_filename = ctx.obj['config_filename']
+    config = pywren.wrenconfig.load(config_filename)
+    region = config['account']['aws_region']
+
+    print("Source: " + source_bucket)
+    print("Destination: " + dest_bucket)
+
+    s3 = boto3.client("s3", region)
+
+    runtime_s3_bucket = config['runtime']['s3_bucket']
+    runtime_s3_key = config['runtime']['s3_key']
+
+    meta_file = runtime_s3_key.replace(".tar.gz", ".meta.json")
+    s3.copy_object(Bucket=dest_bucket, Key=meta_file, CopySource={'Bucket': source_bucket,
+                                                          'Key': meta_file})
+
+    runtime_meta_info = pywren.runtime.get_runtime_info(runtime_s3_bucket, runtime_s3_key)
+    if ('urls' in runtime_meta_info and
+            isinstance(runtime_meta_info['urls'], list) and
+                len(runtime_meta_info['urls']) > 1):
+        def copy_func(url):
+            key = "/".join(url.split("/")[3:])
+            print("Copying runtime file: " + key)
+            s3.copy_object(Bucket=dest_bucket, Key=key, CopySource={'Bucket': source_bucket,
+                                                                    'Key': key})
+        pool = ThreadPool(min(64, len(runtime_meta_info['urls'])))
+        pool.map(copy_func, runtime_meta_info['urls'])
+        pool.close()
+
 
 @click.command()
 @click.pass_context
@@ -555,6 +619,7 @@ cli.add_command(test_function)
 cli.add_command(get_aws_account_id)
 cli.add_command(create_role)
 cli.add_command(create_bucket)
+cli.add_command(copy_runtime)
 cli.add_command(create_instance_profile)
 cli.add_command(delete_instance_profile)
 cli.add_command(deploy_lambda)
