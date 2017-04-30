@@ -204,7 +204,6 @@ class Executor(object):
         for module in exclude_modules:
             for mod_path in list(mod_paths):
                 if module in mod_path and mod_path in mod_paths:
-                    print(mod_path)
                     mod_paths.remove(mod_path)
 
 
