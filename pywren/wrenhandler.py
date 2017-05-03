@@ -73,22 +73,24 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
     if os.path.islink(CONDA_RUNTIME_DIR):
         os.unlink(CONDA_RUNTIME_DIR)
 
-    shutil.rmtree(RUNTIME_LOC, True)
+    shutil.rmtree(runtime_etag_dir, True)
 
     os.makedirs(runtime_etag_dir)
 
-    res = s3conn.meta.client.get_object(Bucket=runtime_s3_bucket, 
+    res = s3conn.meta.client.get_object(Bucket=runtime_s3_bucket,
                                     Key=runtime_s3_key)
 
-    condatar = tarfile.open(mode= "r:gz", 
+    condatar = tarfile.open(mode= "r:gz",
                             fileobj = wrenutil.WrappedStreamingBody(res['Body'], 
                                                                     res['ContentLength']))
 
 
     condatar.extractall(runtime_etag_dir)
 
-    # final operation 
-    os.symlink(expected_target, CONDA_RUNTIME_DIR)
+    # final operation
+
+    if os.path.exists(CONDA_RUNTIME_DIR):
+        os.symlink(expected_target, CONDA_RUNTIME_DIR)
     return False
 
 
