@@ -11,6 +11,7 @@ import json
 import shutil
 import sys
 import base64
+import os
 
 import traceback
 from threading import Thread
@@ -49,11 +50,12 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
     runtime_meta = s3conn.meta.client.head_object(Bucket=runtime_s3_bucket, 
                                                   Key=runtime_s3_key)
     # etags have strings (double quotes) on each end, so we strip those
-    ETag = str(runtime_meta['ETag'])[1:-1]
+    pid = str(os.getpid())
+    ETag = str(runtime_meta['ETag'])[1:-1] + "_" + pid
     logger.debug("The etag is ={}".format(ETag))
     runtime_etag_dir = os.path.join(RUNTIME_LOC, ETag)
     logger.debug("Runtime etag dir={}".format(runtime_etag_dir))
-    expected_target = os.path.join(runtime_etag_dir, 'condaruntime')    
+    expected_target = os.path.join(runtime_etag_dir, 'condaruntime')
     logger.debug("Expected target={}".format(expected_target))
     # check if dir is linked to correct runtime
     if os.path.exists(RUNTIME_LOC):
@@ -72,9 +74,9 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
         os.unlink(CONDA_RUNTIME_DIR)
 
     shutil.rmtree(RUNTIME_LOC, True)
-    
+
     os.makedirs(runtime_etag_dir)
-    
+
     res = s3conn.meta.client.get_object(Bucket=runtime_s3_bucket, 
                                     Key=runtime_s3_key)
 
