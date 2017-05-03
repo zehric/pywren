@@ -6,6 +6,8 @@ import os
 import pywren
 import base64
 import logging
+import copy
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -35,28 +37,29 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
                      default_volume_size=100, 
                      max_idle_time=60, idle_terminate_granularity=600, 
                      pywren_git_branch='master', 
+                     spot_price=None, 
+                     availability_zone = None, 
                      pywren_git_commit=None):
 
 
-    logger.info("launching {} {} instances in {}".format(number, instance_type, 
-                                                         aws_region))
-    # INSTANCE_TYPE = 'm3.xlarge'
-    # instance_name = AWS_INSTANCE_NAME
-
-
+    logger.info("launching {} {} instances in {} (zone {}) ".format(number, 
+                                                                    instance_type, 
+                                                                    aws_region, 
+                                                                    availability_zone))
+    
     ec2 = boto3.resource('ec2', region_name=aws_region)
+    image = ec2.Image(tgt_ami)
 
-    BlockDeviceMappings=[
-        {
-            'DeviceName': '/dev/xvda',
-            'Ebs': {
-                'VolumeSize': default_volume_size,
-                'DeleteOnTermination': True,
-                'VolumeType': 'standard',
-                'SnapshotId' : 'snap-c87f35ec'
-            },
-        },
-    ]
+    # BlockDeviceMappings=[
+    #     {
+    #         'DeviceName': '/dev/xvda',
+    #         'Ebs': {
+    #             'VolumeSize': default_volume_size,
+    #             'DeleteOnTermination': True,
+    #             'VolumeType': 'standard',
+    #         },
+    #     },
+    # ]
     template_file = sd('ec2standalone.cloudinit.template')
 
     user_data = open(template_file, 'r').read()
@@ -81,7 +84,7 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
         # use a git commit
         git_checkout_string = str(pywren_git_commit)
     else: 
-        git_checkout_string = "-b {}".format(pywren_git_branch)
+        git_checkout_string = " {}".format(pywren_git_branch)
 
     user_data = user_data.format(supervisord_init_script = supervisord_init_script_64, 
                                  supervisord_conf = supervisord_conf_64, 
@@ -89,22 +92,24 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
                                  aws_region = aws_region, 
                                  cloud_agent_conf = cloud_agent_conf_64)
 
-
+    # FIXME debug
     open("/tmp/user_data", 'w').write(user_data)
 
     iam = boto3.resource('iam')
     instance_profile = iam.InstanceProfile(instance_profile_name)
-    instance_profile_dict =  {
-                              'Name' : instance_profile.name}
-    instances = ec2.create_instances(ImageId=tgt_ami, MinCount=number, 
-                                     MaxCount=number,
-                                     KeyName=my_aws_key, 
-                                     InstanceType=instance_type, 
-                                     BlockDeviceMappings = BlockDeviceMappings,
-                                     InstanceInitiatedShutdownBehavior='terminate',
-                                     EbsOptimized=True, 
-                                     IamInstanceProfile = instance_profile_dict, 
-                                     UserData=user_data)
+    instance_profile_dict =  {'Name' : instance_profile.name}
+    
+    instances = _create_instances(number, aws_region, 
+                                  spot_price, ami=tgt_ami, 
+                                  key_name = my_aws_key, 
+                                  instance_type=instance_type, 
+                                  #block_device_mappings = None, 
+                                  security_group_ids = [], 
+                                  ebs_optimized = True, 
+                                  instance_profile = instance_profile_dict, 
+                                  availability_zone = availability_zone, 
+                                  user_data = user_data)
+
     
     # FIXME there's a race condition where we could end up with two 
     # instances with the same name but that's ok
@@ -144,6 +149,130 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
         inst.wait_until_running()
 
     return new_instances_with_names
+
+
+
+
+
+def _create_instances(num_instances,
+                      region,
+                      spot_price,
+                      ami,
+                      key_name,
+                      instance_type,
+                      #block_device_mappings,
+                      security_group_ids,
+                      ebs_optimized, 
+                      instance_profile, 
+                      availability_zone, 
+                      user_data):
+
+    ''' Function graciously borrowed from Flintrock ec2 wrapper
+        https://raw.githubusercontent.com/nchammas/flintrock/00cce5fe9d9f741f5999fddf2c7931d2cb1bdbe8/flintrock/ec2.py
+    '''
+
+    ec2 = boto3.resource(service_name='ec2', region_name=region)
+    spot_requests = []
+    try:
+        if spot_price:
+            print("Requesting {c} spot instances at a max price of ${p}...".format(
+                c=num_instances, p=spot_price))
+            client = ec2.meta.client
+
+
+            LaunchSpecification={
+                'ImageId': ami,
+                'KeyName': key_name,
+                'InstanceType': instance_type,
+                #'BlockDeviceMappings': block_device_mappings,
+                'SecurityGroupIds': security_group_ids,
+                'EbsOptimized': ebs_optimized, 
+                'IamInstanceProfile' : instance_profile,
+                'UserData' : b64s(user_data)}
+            if availability_zone is not None:
+                LaunchSpecification['Placement'] = {"AvailabilityZone":availability_zone}
+            spot_requests = client.request_spot_instances(
+                SpotPrice=str(spot_price),
+                InstanceCount=num_instances,
+                LaunchSpecification=LaunchSpecification)['SpotInstanceRequests']
+
+            request_ids = [r['SpotInstanceRequestId'] for r in spot_requests]
+            pending_request_ids = request_ids
+
+            while pending_request_ids:
+                print("{grant} of {req} instances granted. Waiting...".format(
+                    grant=num_instances - len(pending_request_ids),
+                    req=num_instances))
+                time.sleep(30)
+                spot_requests = client.describe_spot_instance_requests(
+                    SpotInstanceRequestIds=request_ids)['SpotInstanceRequests']
+
+                failed_requests = [r for r in spot_requests if r['State'] == 'failed']
+                if failed_requests:
+                    failure_reasons = {r['Status']['Code'] for r in failed_requests}
+                    raise Exception(
+                        "The spot request failed for the following reason{s}: {reasons}"
+                        .format(
+                            s='' if len(failure_reasons) == 1 else 's',
+                            reasons=', '.join(failure_reasons)))
+
+                pending_request_ids = [
+                    r['SpotInstanceRequestId'] for r in spot_requests
+                    if r['State'] == 'open']
+
+            print("All {c} instances granted.".format(c=num_instances))
+
+            cluster_instances = list(
+                ec2.instances.filter(
+                    Filters=[
+                        {'Name': 'instance-id', 'Values': [r['InstanceId'] for r in spot_requests]}
+                    ]))
+        else:
+            # Move this to flintrock.py?
+            print("Launching {c} instance{s}...".format(
+                c=num_instances,
+                s='' if num_instances == 1 else 's'))
+
+            # TODO: If an exception is raised in here, some instances may be
+            #       left stranded.
+            cluster_instances = ec2.create_instances(
+                MinCount=num_instances,
+                MaxCount=num_instances,
+                ImageId=ami,
+                KeyName=key_name,
+                InstanceType=instance_type,
+                #BlockDeviceMappings=block_device_mappings,
+                SecurityGroupIds=security_group_ids,
+                EbsOptimized=ebs_optimized,
+                IamInstanceProfile =  instance_profile,
+                InstanceInitiatedShutdownBehavior = 'terminate', 
+
+                UserData = user_data)
+        time.sleep(10)  # AWS metadata eventual consistency tax.
+        return cluster_instances
+    except (Exception, KeyboardInterrupt) as e:
+        if not isinstance(e, KeyboardInterrupt):
+            print(e)
+        if spot_requests:
+            request_ids = [r['SpotInstanceRequestId'] for r in spot_requests]
+            if any([r['State'] != 'active' for r in spot_requests]):
+                print("Canceling spot instance requests...")
+                client.cancel_spot_instance_requests(
+                    SpotInstanceRequestIds=request_ids)
+            # Make sure we have the latest information on any launched spot instances.
+            spot_requests = client.describe_spot_instance_requests(
+                SpotInstanceRequestIds=request_ids)['SpotInstanceRequests']
+            instance_ids = [
+                r['InstanceId'] for r in spot_requests
+                if 'InstanceId' in r]
+            if instance_ids:
+                cluster_instances = list(
+                    ec2.instances.filter(
+                        Filters=[
+                            {'Name': 'instance-id', 'Values': instance_ids}
+                        ]))
+        raise Exception("Launch failure")
+
 
 def tags_to_dict(d):
     if d is None:
