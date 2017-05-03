@@ -36,6 +36,7 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
                      instance_name, instance_profile_name, sqs_queue_name, 
                      default_volume_size=100, 
                      max_idle_time=60, idle_terminate_granularity=600, 
+                     num_jobs_per_machine=16,
                      pywren_git_branch='master', 
                      spot_price=None, 
                      availability_zone = None, 
@@ -73,7 +74,8 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
                                                sqs_queue_name=sqs_queue_name, 
                                                aws_region=aws_region, 
                                                max_idle_time=max_idle_time,
-                                               idle_terminate_granularity=idle_terminate_granularity)
+                                               idle_terminate_granularity=idle_terminate_granularity, 
+                                               num_jobs_per_machine=num_jobs_per_machine)
     supervisord_conf_64 = b64s(supervisord_conf)
 
     cloud_agent_conf = open(sd("cloudwatch-agent.config"), 
@@ -105,7 +107,7 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
                                   instance_type=instance_type, 
                                   #block_device_mappings = None, 
                                   security_group_ids = [], 
-                                  ebs_optimized = True, 
+                                  ebs_optimized = False, 
                                   instance_profile = instance_profile_dict, 
                                   availability_zone = availability_zone, 
                                   user_data = user_data)
