@@ -272,8 +272,7 @@ def job_handler(event, job_i, run_dir, aws_region,
     # wren_log.addHandler(handler)
 
     original_dir = os.getcwd()
-    
-    task_run_dir = os.path.join(run_dir, str(job_i))
+    task_run_dir = os.path.join(run_dir, str(job_i) + "_" + str(os.getpid()))
     shutil.rmtree(task_run_dir, True) # delete old modules
     os.makedirs(task_run_dir)
     copy_runtime(task_run_dir)
