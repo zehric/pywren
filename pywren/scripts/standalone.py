@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 SQS_VISIBILITY_SEC = 10
-RANDOM_CLOUDWATCH_SLEEP_SEC=60
+RANDOM_CLOUDWATCH_SLEEP_SEC=120
 PROCESS_SLEEP_DUR_SEC=2
 AWS_REGION_DEBUG='us-west-2'
 QUEUE_SLEEP_DUR_SEC=2
@@ -326,6 +326,8 @@ def job_handler(event, job_i, run_dir, aws_region,
 def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time, 
            idle_terminate_granularity, queue_receive_message_timeout):
     
+    rand_sleep = int(random.random() * RANDOM_CLOUDWATCH_SLEEP_SEC)
+    time.sleep(rand_sleep)
     session = boto3.session.Session(region_name=aws_region)
 
     # make boto quiet locally FIXME is there a better way of doing this? 
@@ -352,8 +354,6 @@ def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
 
     log_stream_prefix = ec2_metadata['instance_id'] + str(os.getpid())
     # stagger log creation over a minute so we don't get ratelimited
-    rand_sleep = int(random.random() * RANDOM_CLOUDWATCH_SLEEP_SEC)
-    time.sleep(rand_sleep)
     
     handler = watchtower.CloudWatchLogHandler(send_interval=20, 
                                               log_group="pywren.standalone", 
