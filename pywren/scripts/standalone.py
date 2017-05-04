@@ -25,7 +25,7 @@ try:
     from urllib.request import urlopen
 except ImportError:
     # Fall back to Python 2's urllib2
-    from urllib2 import urlopen
+    from urllib.request import urlopen
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def get_my_ec2_instance(aws_region):
 
     ec2 = boto3.resource('ec2', region_name=aws_region)
 
-    instance_id =  urlopen(INSTANCE_ID_URL).read()
+    instance_id =  urlopen(INSTANCE_ID_URL).read().decode()
     instances = ec2.instances.filter(InstanceIds=[instance_id])
 
 
@@ -249,7 +249,7 @@ def job_handler(event, job_i, run_dir, aws_region,
 
     call_id = event['call_id']
     callset_id = event['callset_id']
-    print "subprocess job_handler job i=", job_i, "pid=", os.getpid(), "callset_id=", callset_id, "call_id=", call_id
+    print("subprocess job_handler job i=", job_i, "pid=", os.getpid(), "callset_id=", callset_id, "call_id=", call_id)
     logger.info("jobhandler_thread callset_id={} call_id={}".format(callset_id, call_id))
 
     #session = boto3.session.Session(region_name=aws_region)
@@ -356,7 +356,7 @@ def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
     #debug_stream_handler = logging.StreamHandler()
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
 
     #logger.addHandler(debug_stream_handler)
 

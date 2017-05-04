@@ -89,8 +89,10 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
 
     # final operation
 
-    if os.path.exists(CONDA_RUNTIME_DIR):
+    if not os.path.exists(CONDA_RUNTIME_DIR):
         os.symlink(expected_target, CONDA_RUNTIME_DIR)
+    else:
+        subprocess.check_output("rm -Rf {}/*".format(expected_target), shell=True)
     return False
 
 
@@ -146,10 +148,10 @@ def generic_handler(event, context_dict):
 
         start_time = time.time()
         response_status['start_time'] = start_time
-
-        func_filename = "/tmp/func.pickle"
-        data_filename = "/tmp/data.pickle"
-        output_filename = "/tmp/output.pickle"
+        pid = str(os.getpid())
+        func_filename = "/tmp/func.{0}.pickle".format(pid)
+        data_filename = "/tmp/data.{0}.pickle".format(pid)
+        output_filename = "/tmp/output.{0}.pickle".format(pid)
 
         runtime_s3_bucket = event['runtime_s3_bucket']
         runtime_s3_key = event['runtime_s3_key']
