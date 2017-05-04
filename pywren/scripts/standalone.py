@@ -336,7 +336,7 @@ def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
         instance = get_my_ec2_instance(aws_region)
         ec2_metadata = get_my_ec2_meta(instance)
         server_name = ec2_metadata['Name']
-        log_stream_prefix = ec2_metadata['instance_id']
+        log_stream_prefix = ec2_metadata['instance_id'] + "." + str(os.getpid())
     else:
         server_name='c65'
         log_stream_prefix='millennium-c65'
@@ -356,7 +356,7 @@ def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
     #debug_stream_handler = logging.StreamHandler()
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    logger.setLevel(logging.WARN)
+    logger.setLevel(logging.INFO)
 
     #logger.addHandler(debug_stream_handler)
 
