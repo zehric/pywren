@@ -30,7 +30,7 @@ else:
     from Queue import Queue, Empty
 
 
-PYTHON_MODULE_PATH = "/tmp/pymodules"
+PYTHON_MODULE_PATH = "/tmp/pymodules.{0}".format(os.getpid())
 CONDA_RUNTIME_DIR = "/tmp/condaruntime"
 RUNTIME_LOC = "/tmp/runtimes"
 
@@ -62,11 +62,8 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
         if os.path.exists(CONDA_RUNTIME_DIR) :
             if not os.path.islink(CONDA_RUNTIME_DIR):
                 raise Exception("{} is not a symbolic link, your runtime config is broken".format(CONDA_RUNTIME_DIR))
+            return True
 
-            existing_link = os.readlink(CONDA_RUNTIME_DIR)
-            if existing_link == expected_target:
-                logger.debug("found existing {}, not re-downloading".format(ETag))
-                return True
 
     logger.debug("{} not cached, downloading".format(ETag))
     # didn't cache, so we start over
