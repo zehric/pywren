@@ -356,7 +356,7 @@ def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
     #debug_stream_handler = logging.StreamHandler()
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
 
     #logger.addHandler(debug_stream_handler)
 
