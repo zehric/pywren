@@ -58,6 +58,7 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
     expected_target = os.path.join(runtime_etag_dir, 'condaruntime')
     logger.debug("Expected target={}".format(expected_target))
     # check if dir is linked to correct runtime
+
     if os.path.exists(RUNTIME_LOC):
         if os.path.exists(CONDA_RUNTIME_DIR) :
             if not os.path.islink(CONDA_RUNTIME_DIR):
@@ -87,7 +88,14 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
     # final operation
 
     if not os.path.exists(CONDA_RUNTIME_DIR):
-        os.symlink(expected_target, CONDA_RUNTIME_DIR)
+        try:
+            os.symlink(expected_target, CONDA_RUNTIME_DIR)
+        except:
+            # this is a race condition but its OK because if the symlink failed we can either
+            # 1) Assume the runtime was created by another process
+            # 2) Something else happened in which case it'll probably fail
+            #TODO(Vaishaal) figure out how to make this kosher
+            return True
     else:
         subprocess.check_output("rm -Rf {}/*".format(expected_target), shell=True)
     return False

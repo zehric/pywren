@@ -19,7 +19,9 @@ import watchtower
 import subprocess
 import math
 import sys
-import platform 
+import platform
+import random
+
 try:
     # For Python 3.0 and later
     from urllib.request import urlopen
@@ -31,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 SQS_VISIBILITY_SEC = 10
+RANDOM_CLOUDWATCH_SLEEP_SEC=60
 PROCESS_SLEEP_DUR_SEC=2
 AWS_REGION_DEBUG='us-west-2'
 QUEUE_SLEEP_DUR_SEC=2
@@ -347,6 +350,11 @@ def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
     formatter = logging.Formatter(log_format_str, "%Y-%m-%d %H:%M:%S")
 
 
+    log_stream_prefix = ec2_metadata['instance_id'] + str(os.getpid())
+    # stagger log creation over a minute so we don't get ratelimited
+    rand_sleep = int(random.random() * RANDOM_CLOUDWATCH_SLEEP_SEC)
+    time.sleep(rand_sleep)
+    
     handler = watchtower.CloudWatchLogHandler(send_interval=20, 
                                               log_group="pywren.standalone", 
                                               stream_name=log_stream_prefix + "-{logger_name}", 
