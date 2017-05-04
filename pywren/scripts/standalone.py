@@ -25,7 +25,7 @@ try:
     from urllib.request import urlopen
 except ImportError:
     # Fall back to Python 2's urllib2
-    from urllib.request import urlopen
+    from urllib2 import urlopen
 
 logger = logging.getLogger(__name__)
 
