@@ -11,14 +11,16 @@ packages:
   - htop
   
 runcmd:
-  # first and always, cloudwatch agent
+  # delete existing pywren and anaconda
+  - [ sudo, -Hu, ec2-user, sh, -c, "rm -rf /home/ec2-user/pywren"]
+  - [ sudo, -Hu, ec2-user, sh, -c, "rm -rf /home/ec2-user/anaconda"]
+  # cloudwatch agent
   - [ curl,  "https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py", "-O"]
   - chmod +x ./awslogs-agent-setup.py
   - ./awslogs-agent-setup.py -n -r {aws_region} -c /etc/cloud-agent.conf
   - sudo /etc/init.d/ntpd restart
+  # this should use system python
   - pip install supervisor
-  - [ sudo, -Hu, ec2-user, sh, -c, "rm -rf /home/ec2-user/pywren"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "rm -rf /home/ec2-user/anaconda"]
   - [ sudo, -Hu, ec2-user, sh, -c, "wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh"]
   - [ sudo, -Hu, ec2-user, sh, -c, "chmod +x /tmp/miniconda.sh"]
   - [ sudo, -Hu, ec2-user, sh, -c, "/tmp/miniconda.sh -b -p  /home/ec2-user/anaconda"]
