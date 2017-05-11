@@ -12,8 +12,8 @@ packages:
   
 runcmd:
   # delete existing pywren and anaconda
-  - [ sudo, -Hu, ec2-user, sh, -c, "rm -rf /home/ec2-user/pywren"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "rm -rf /home/ec2-user/anaconda"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "rm -rf /home/ubuntu/pywren"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "rm -rf /home/ubuntu/anaconda"]
   # cloudwatch agent
   - [ curl,  "https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py", "-O"]
   - chmod +x ./awslogs-agent-setup.py
@@ -21,20 +21,20 @@ runcmd:
   - sudo /etc/init.d/ntpd restart
   # this should use system python
   - pip install supervisor
-  - [ sudo, -Hu, ec2-user, sh, -c, "wget https://repo.continuum.io/miniconda/Miniconda2-latest-Linux-x86_64.sh -O /tmp/miniconda.sh"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "chmod +x /tmp/miniconda.sh"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "/tmp/miniconda.sh -b -p  /home/ec2-user/anaconda"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "/home/ec2-user/anaconda/bin/conda install -q -y numpy boto3 boto"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "/home/ec2-user/anaconda/bin/pip install supervisor"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "/home/ec2-user/anaconda/bin/pip install git+https://github.com/ericmjonas/watchtower.git"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "git clone https://github.com/ericmjonas/pywren.git /home/ec2-user/pywren"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "git -C /home/ec2-user/pywren fetch origin refs/pull/*/head:refs/remotes/origin/pr/*"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "git -C /home/ec2-user/pywren fetch origin refs/pull/*/merge:refs/remotes/origin/pr/*"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "git -C /home/ec2-user/pywren checkout {git_checkout_string}"]
-  - [ sudo, -Hu, ec2-user, sh, -c, "/home/ec2-user/anaconda/bin/pip install -e /home/ec2-user/pywren"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "wget https://repo.continuum.io/miniconda/Miniconda2-latest-Linux-x86_64.sh -O /tmp/miniconda.sh"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "chmod +x /tmp/miniconda.sh"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "/tmp/miniconda.sh -b -p  /home/ubuntu/anaconda"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "/home/ubuntu/anaconda/bin/conda install -q -y numpy boto3 boto"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "/home/ubuntu/anaconda/bin/pip install supervisor"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "/home/ubuntu/anaconda/bin/pip install git+https://github.com/ericmjonas/watchtower.git"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "git clone https://github.com/ericmjonas/pywren.git /home/ubuntu/pywren"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "git -C /home/ubuntu/pywren fetch origin refs/pull/*/head:refs/remotes/origin/pr/*"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "git -C /home/ubuntu/pywren fetch origin refs/pull/*/merge:refs/remotes/origin/pr/*"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "git -C /home/ubuntu/pywren checkout {git_checkout_string}"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "/home/ubuntu/anaconda/bin/pip install -e /home/ubuntu/pywren"]
   - [ ls, /etc/init.d/]
   - mkdir /var/run/supervisor
-  - chown ec2-user /var/run/supervisor
+  - chown ubuntu /var/run/supervisor
   - chmod +x /etc/init.d/supervisor
   - chkconfig --add supervisor
   - chkconfig supervisor on

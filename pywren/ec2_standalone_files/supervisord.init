@@ -9,7 +9,7 @@
  
 . /etc/init.d/functions
  
-DAEMON=/home/ec2-user/anaconda/bin/supervisord
+DAEMON=/home/ubuntu/anaconda/bin/supervisord
 PIDFILE=/var/run/supervisor/supervisord.pid
  
 [ -x "$DAEMON" ] || exit 0
@@ -21,7 +21,7 @@ start() {
                 echo supervisord already running: $PID
                 exit 2;
         else
-                daemon  $DAEMON --pidfile=$PIDFILE -c /etc/supervisord.conf -u ec2-user -d /home/ec2-user
+                daemon  $DAEMON --pidfile=$PIDFILE -c /etc/supervisord.conf -u ubuntu -d /home/ubuntu
                 RETVAL=$?
                 echo
                 [ $RETVAL -eq 0 ] && touch /var/lock/subsys/supervisord

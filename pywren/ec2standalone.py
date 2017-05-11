@@ -11,6 +11,8 @@ import time
 
 logger = logging.getLogger(__name__)
 
+SECURITY_GROUP_IDS=["sg-1542296d"]
+
 def b64s(string):
     """
     Base-64 encode a string and return a string
@@ -34,7 +36,7 @@ def create_instance_profile(instance_profile_name):
 
 def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type, 
                      instance_name, instance_profile_name, sqs_queue_name, 
-                     default_volume_size=100, 
+                     default_volume_size=25, 
                      max_idle_time=60, idle_terminate_granularity=600, 
                      num_jobs_per_machine=16,
                      pywren_git_branch='master', 
@@ -51,16 +53,16 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
     ec2 = boto3.resource('ec2', region_name=aws_region)
     image = ec2.Image(tgt_ami)
 
-    # BlockDeviceMappings=[
-    #     {
-    #         'DeviceName': '/dev/xvda',
-    #         'Ebs': {
-    #             'VolumeSize': default_volume_size,
-    #             'DeleteOnTermination': True,
-    #             'VolumeType': 'standard',
-    #         },
-    #     },
-    # ]
+    BlockDeviceMappings=[
+         {
+             'DeviceName': '/dev/xvda',
+             'Ebs': {
+                 'VolumeSize': default_volume_size,
+                 'DeleteOnTermination': True,
+                 'VolumeType': 'standard',
+             },
+         },
+     ]
     template_file = sd('ec2standalone.cloudinit.template')
 
     user_data = open(template_file, 'r').read()
@@ -105,8 +107,8 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
                                   spot_price, ami=tgt_ami, 
                                   key_name = my_aws_key, 
                                   instance_type=instance_type, 
-                                  #block_device_mappings = None, 
-                                  security_group_ids = [], 
+                                  block_device_mappings = BlockDeviceMappings,
+                                  security_group_ids = SECURITY_GROUP_IDS,
                                   ebs_optimized = False, 
                                   instance_profile = instance_profile_dict, 
                                   availability_zone = availability_zone, 
@@ -162,7 +164,7 @@ def _create_instances(num_instances,
                       ami,
                       key_name,
                       instance_type,
-                      #block_device_mappings,
+                      block_device_mappings,
                       security_group_ids,
                       ebs_optimized, 
                       instance_profile, 
@@ -180,13 +182,13 @@ def _create_instances(num_instances,
             print("Requesting {c} spot instances at a max price of ${p}...".format(
                 c=num_instances, p=spot_price))
             client = ec2.meta.client
-
+            print(block_device_mappings)
 
             LaunchSpecification={
                 'ImageId': ami,
                 'KeyName': key_name,
                 'InstanceType': instance_type,
-                #'BlockDeviceMappings': block_device_mappings,
+                'BlockDeviceMappings': block_device_mappings,
                 'SecurityGroupIds': security_group_ids,
                 'EbsOptimized': ebs_optimized, 
                 'IamInstanceProfile' : instance_profile,
@@ -205,7 +207,8 @@ def _create_instances(num_instances,
                 print("{grant} of {req} instances granted. Waiting...".format(
                     grant=num_instances - len(pending_request_ids),
                     req=num_instances))
-                time.sleep(30)
+                print("SLEEPING")
+                time.sleep(60)
                 spot_requests = client.describe_spot_instance_requests(
                     SpotInstanceRequestIds=request_ids)['SpotInstanceRequests']
 
@@ -243,7 +246,7 @@ def _create_instances(num_instances,
                 ImageId=ami,
                 KeyName=key_name,
                 InstanceType=instance_type,
-                #BlockDeviceMappings=block_device_mappings,
+                BlockDeviceMappings=block_device_mappings,
                 SecurityGroupIds=security_group_ids,
                 EbsOptimized=ebs_optimized,
                 IamInstanceProfile =  instance_profile,
