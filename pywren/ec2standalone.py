@@ -53,16 +53,6 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
     ec2 = boto3.resource('ec2', region_name=aws_region)
     image = ec2.Image(tgt_ami)
 
-    BlockDeviceMappings=[
-         {
-             'DeviceName': '/dev/xvda',
-             'Ebs': {
-                 'VolumeSize': default_volume_size,
-                 'DeleteOnTermination': True,
-                 'VolumeType': 'standard',
-             },
-         },
-     ]
     template_file = sd('ec2standalone.cloudinit.template')
 
     user_data = open(template_file, 'r').read()
@@ -107,7 +97,6 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
                                   spot_price, ami=tgt_ami, 
                                   key_name = my_aws_key, 
                                   instance_type=instance_type, 
-                                  block_device_mappings = BlockDeviceMappings,
                                   security_group_ids = SECURITY_GROUP_IDS,
                                   ebs_optimized = False, 
                                   instance_profile = instance_profile_dict, 
@@ -164,7 +153,6 @@ def _create_instances(num_instances,
                       ami,
                       key_name,
                       instance_type,
-                      block_device_mappings,
                       security_group_ids,
                       ebs_optimized, 
                       instance_profile, 
@@ -182,13 +170,11 @@ def _create_instances(num_instances,
             print("Requesting {c} spot instances at a max price of ${p}...".format(
                 c=num_instances, p=spot_price))
             client = ec2.meta.client
-            print(block_device_mappings)
 
             LaunchSpecification={
                 'ImageId': ami,
                 'KeyName': key_name,
                 'InstanceType': instance_type,
-                'BlockDeviceMappings': block_device_mappings,
                 'SecurityGroupIds': security_group_ids,
                 'EbsOptimized': ebs_optimized, 
                 'IamInstanceProfile' : instance_profile,
@@ -246,7 +232,6 @@ def _create_instances(num_instances,
                 ImageId=ami,
                 KeyName=key_name,
                 InstanceType=instance_type,
-                BlockDeviceMappings=block_device_mappings,
                 SecurityGroupIds=security_group_ids,
                 EbsOptimized=ebs_optimized,
                 IamInstanceProfile =  instance_profile,
