@@ -31,7 +31,7 @@ else:
 
 
 PYTHON_MODULE_PATH = "/tmp/pymodules.{0}".format(os.getpid())
-CONDA_RUNTIME_DIR = "/tmp/condaruntime"
+CONDA_RUNTIME_DIR = "/home/ubuntu/anaconda3/"
 RUNTIME_LOC = "/tmp/runtimes"
 
 logger = logging.getLogger(__name__)
@@ -237,13 +237,18 @@ def generic_handler(event, context_dict):
         logger.debug(subprocess.check_output("find {}".format(PYTHON_MODULE_PATH), shell=True))
         logger.debug(subprocess.check_output("find {}".format(os.getcwd()), shell=True))
 
+        '''
         response_status['runtime_s3_key_used'] = runtime_s3_key_used
         response_status['runtime_s3_bucket_used'] = runtime_s3_bucket_used
-        
+       
         runtime_cached = download_runtime_if_necessary(s3, runtime_s3_bucket_used,
                                                        runtime_s3_key_used)
         logger.info("Runtime ready, cached={}".format(runtime_cached))
-        response_status['runtime_cached'] = runtime_cached
+        '''
+        response_status['runtime_cached'] = True
+        response_status['runtime_s3_key_used'] = 'LOCAL'
+        response_status['runtime_s3_bucket_used'] = 'LOCAL'
+        logger.info("Using local runtime")
 
         cwd = os.getcwd()
         jobrunner_path = os.path.join(cwd, "jobrunner.py")
@@ -256,7 +261,8 @@ def generic_handler(event, context_dict):
         response_status['call_id'] = call_id
         response_status['callset_id'] = callset_id
 
-        CONDA_PYTHON_PATH = "/tmp/condaruntime/bin"
+        #TODO FIX(make your own custom multicore runtime)
+        CONDA_PYTHON_PATH = "/home/ubuntu/anaconda3/bin"
         CONDA_PYTHON_RUNTIME = os.path.join(CONDA_PYTHON_PATH, "python")
 
         cmdstr = "{} {} {} {} {}".format(CONDA_PYTHON_RUNTIME, 
@@ -270,7 +276,7 @@ def generic_handler(event, context_dict):
 
         local_env = os.environ.copy()
 
-        local_env["OMP_NUM_THREADS"] = "1"
+        #local_env["OMP_NUM_THREADS"] = "1"
         local_env.update(extra_env)
 
         local_env['PATH'] = "{}:{}".format(CONDA_PYTHON_PATH, local_env.get("PATH", ""))
