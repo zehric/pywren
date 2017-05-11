@@ -19,6 +19,7 @@ runcmd:
   - chmod +x ./awslogs-agent-setup.py
   - ./awslogs-agent-setup.py -n -r {aws_region} -c /etc/cloud-agent.conf
   - sudo /etc/init.d/ntpd restart
+  - sudo mount -o remount,size=50G /dev/shm
   # this should use system python
   - pip install supervisor
   - [ sudo, -Hu, ubuntu, sh, -c, "wget https://repo.continuum.io/miniconda/Miniconda2-latest-Linux-x86_64.sh -O /tmp/miniconda.sh"]
