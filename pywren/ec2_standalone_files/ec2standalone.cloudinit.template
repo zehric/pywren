@@ -36,8 +36,8 @@ runcmd:
   - mkdir /var/run/supervisor
   - chown ubuntu /var/run/supervisor
   - chmod +x /etc/init.d/supervisor
-  - chkconfig --add supervisor
-  - chkconfig supervisor on
+  - update-rc.d supervisor defaults
+  - update-rc.d supervisor start 2 3 4 5
   - service supervisor start
 
 write_files:
