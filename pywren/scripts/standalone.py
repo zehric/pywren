@@ -287,11 +287,16 @@ def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
     logging.getLogger('boto').setLevel(logging.CRITICAL)
     logging.getLogger('boto3').setLevel(logging.CRITICAL)
     logging.getLogger('botocore').setLevel(logging.CRITICAL)
-    
 
-    instance = get_my_ec2_instance(aws_region)
-    ec2_metadata = get_my_ec2_meta(instance)
-    server_name = ec2_metadata['Name']
+    if platform.node() != 'c65':
+        instance = get_my_ec2_instance(aws_region)
+        ec2_metadata = get_my_ec2_meta(instance)
+        server_name = ec2_metadata.get('Name', 'ec2')
+        log_stream_prefix = ec2_metadata['instance_id'] + "-pid-" + str(os.getpid())
+    else:
+        server_name='c65'
+        log_stream_prefix='millennium-c65'
+
     log_format_str ='{} %(asctime)s - %(name)s - %(levelname)s - %(message)s'.format(server_name)
     log_stream_prefix = ec2_metadata['instance_id']
 
