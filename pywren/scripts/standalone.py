@@ -32,9 +32,9 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-SQS_VISIBILITY_SEC = 10
+SQS_VISIBILITY_SEC = 30
 RANDOM_CLOUDWATCH_SLEEP_SEC=120
-PROCESS_SLEEP_DUR_SEC=2
+PROCESS_SLEEP_DUR_SEC=10
 AWS_REGION_DEBUG='us-west-2'
 QUEUE_SLEEP_DUR_SEC=2
 IDLE_TERMINATE_THRESHOLD = 0.95
@@ -340,7 +340,7 @@ def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
         
         instance = get_my_ec2_instance(aws_region)
         ec2_metadata = get_my_ec2_meta(instance)
-        server_name = ec2_metadata['Name']
+        server_name = ec2_metadata.get('Name', 'ec2')
         log_stream_prefix = ec2_metadata['instance_id'] + "-pid-" + str(os.getpid())
     else:
         server_name='c65'
