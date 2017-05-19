@@ -33,6 +33,7 @@ runcmd:
   - [ sudo, -Hu, ubuntu, sh, -c, "git -C /home/ubuntu/pywren fetch origin refs/pull/*/merge:refs/remotes/origin/pr/*"]
   - [ sudo, -Hu, ubuntu, sh, -c, "git -C /home/ubuntu/pywren checkout {git_checkout_string}"]
   - [ sudo, -Hu, ubuntu, sh, -c, "/home/ubuntu/anaconda/bin/pip install -e /home/ubuntu/pywren"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "nvidia-smi -pm 1"]
   - [ ls, /etc/init.d/]
   - mkdir /var/run/supervisor
   - chown ubuntu /var/run/supervisor

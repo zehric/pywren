@@ -11,7 +11,6 @@ import time
 
 logger = logging.getLogger(__name__)
 
-SECURITY_GROUP_IDS=["sg-1542296d"]
 
 def b64s(string):
     """
@@ -97,7 +96,7 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
                                   spot_price, ami=tgt_ami, 
                                   key_name = my_aws_key, 
                                   instance_type=instance_type, 
-                                  security_group_ids = SECURITY_GROUP_IDS,
+                                  security_group_ids = security_group_ids,
                                   ebs_optimized = False, 
                                   instance_profile = instance_profile_dict, 
                                   availability_zone = availability_zone, 
