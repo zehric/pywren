@@ -20,6 +20,7 @@ runcmd:
   - ./awslogs-agent-setup.py -n -r {aws_region} -c /etc/cloud-agent.conf
   - sudo /etc/init.d/ntpd restart
   - sudo mount -o remount,size=50G /dev/shm
+  - sudo nvidia-smi -pm 1
   # this should use system python
   - pip install supervisor
   - [ sudo, -Hu, ubuntu, sh, -c, "wget https://repo.continuum.io/miniconda/Miniconda2-latest-Linux-x86_64.sh -O /tmp/miniconda.sh"]
@@ -33,7 +34,6 @@ runcmd:
   - [ sudo, -Hu, ubuntu, sh, -c, "git -C /home/ubuntu/pywren fetch origin refs/pull/*/merge:refs/remotes/origin/pr/*"]
   - [ sudo, -Hu, ubuntu, sh, -c, "git -C /home/ubuntu/pywren checkout {git_checkout_string}"]
   - [ sudo, -Hu, ubuntu, sh, -c, "/home/ubuntu/anaconda/bin/pip install -e /home/ubuntu/pywren"]
-  - [ sudo, -Hu, ubuntu, sh, -c, "nvidia-smi -pm 1"]
   - [ ls, /etc/init.d/]
   - mkdir /var/run/supervisor
   - chown ubuntu /var/run/supervisor
