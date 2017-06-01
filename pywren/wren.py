@@ -25,7 +25,6 @@ def default_executor(**kwargs):
     executor_str = 'lambda'
     if 'PYWREN_EXECUTOR' in os.environ:
         executor_str = os.environ['PYWREN_EXECUTOR']
-
     if executor_str == 'lambda':
         return lambda_executor(**kwargs)
     elif executor_str == 'remote' or executor_str=='standalone':
@@ -65,7 +64,7 @@ def dummy_executor(config=None, job_max_runtime=100):
                     RUNTIME_S3_BUCKET, RUNTIME_S3_KEY, job_max_runtime)
 
 
-def remote_executor(config=None, job_max_runtime=3600):
+def remote_executor(config=None, job_max_runtime=3600, conda_runtime_dir="/tmp/condaruntime"):
     if config is None:
         config = wrenconfig.default()
 
@@ -77,7 +76,7 @@ def remote_executor(config=None, job_max_runtime=3600):
     RUNTIME_S3_KEY = config['runtime']['s3_key']
     invoker = invokers.SQSInvoker(AWS_REGION, SQS_QUEUE)
     return Executor(AWS_REGION, S3_BUCKET, S3_PREFIX, invoker,
-                    RUNTIME_S3_BUCKET, RUNTIME_S3_KEY, job_max_runtime)
+                    RUNTIME_S3_BUCKET, RUNTIME_S3_KEY, job_max_runtime, conda_runtime_dir)
 
 standalone_executor = remote_executor
 

@@ -30,14 +30,13 @@ else:
 
 
 PYTHON_MODULE_PATH = "/tmp/pymodules"
-CONDA_RUNTIME_DIR = "/tmp/condaruntime"
 RUNTIME_LOC = "/tmp/runtimes"
 
 logger = logging.getLogger(__name__)
 
 PROCESS_STDOUT_SLEEP_SECS = 2
 
-def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
+def download_runtime_if_necessary(s3conn, conda_runtime_dir, runtime_s3_bucket, runtime_s3_key):
     """
     Download the runtime if necessary
 
@@ -57,19 +56,19 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
     logger.debug("Expected target={}".format(expected_target))
     # check if dir is linked to correct runtime
     if os.path.exists(RUNTIME_LOC):
-        if os.path.exists(CONDA_RUNTIME_DIR) :
-            if not os.path.islink(CONDA_RUNTIME_DIR):
-                raise Exception("{} is not a symbolic link, your runtime config is broken".format(CONDA_RUNTIME_DIR))
+        if os.path.exists(conda_runtime_dir) :
+            if not os.path.islink(conda_runtime_dir):
+                raise Exception("{} is not a symbolic link, your runtime config is broken".format(conda_runtime_dir))
 
-            existing_link = os.readlink(CONDA_RUNTIME_DIR)
+            existing_link = os.readlink(conda_runtime_dir)
             if existing_link == expected_target:
                 logger.debug("found existing {}, not re-downloading".format(ETag))
                 return True
 
     logger.debug("{} not cached, downloading".format(ETag))
     # didn't cache, so we start over
-    if os.path.islink(CONDA_RUNTIME_DIR):
-        os.unlink(CONDA_RUNTIME_DIR)
+    if os.path.islink(conda_runtime_dir):
+        os.unlink(conda_runtime_dir)
 
     shutil.rmtree(RUNTIME_LOC, True)
     
@@ -86,7 +85,7 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
     condatar.extractall(runtime_etag_dir)
 
     # final operation 
-    os.symlink(expected_target, CONDA_RUNTIME_DIR)
+    os.symlink(expected_target, conda_runtime_dir)
     return False
 
 
@@ -135,6 +134,7 @@ def generic_handler(event, context_dict):
         data_key = event['data_key']
         data_byte_range = event['data_byte_range']
         output_key = event['output_key']
+        conda_runtime_dir = event['conda_runtime_dir']
 
         if version.__version__ != event['pywren_version']:
             raise Exception("WRONGVERSION", "Pywren version mismatch", 
@@ -228,9 +228,7 @@ def generic_handler(event, context_dict):
 
         response_status['runtime_s3_key_used'] = runtime_s3_key_used
         response_status['runtime_s3_bucket_used'] = runtime_s3_bucket_used
-        
-        runtime_cached = download_runtime_if_necessary(s3, runtime_s3_bucket_used,
-                                                       runtime_s3_key_used)
+        runtime_cached = download_runtime_if_necessary(s3, conda_runtime_dir, runtime_s3_bucket_used,runtime_s3_key_used)
         logger.info("Runtime ready, cached={}".format(runtime_cached))
         response_status['runtime_cached'] = runtime_cached
 
@@ -245,7 +243,7 @@ def generic_handler(event, context_dict):
         response_status['call_id'] = call_id
         response_status['callset_id'] = callset_id
 
-        CONDA_PYTHON_PATH = "/tmp/condaruntime/bin"
+        CONDA_PYTHON_PATH = conda_runtime_dir + "/bin"
         CONDA_PYTHON_RUNTIME = os.path.join(CONDA_PYTHON_PATH, "python")
 
         cmdstr = "{} {} {} {} {}".format(CONDA_PYTHON_RUNTIME, 

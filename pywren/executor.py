@@ -33,7 +33,7 @@ class Executor(object):
     """
 
     def __init__(self, aws_region, s3_bucket, s3_prefix,
-                 invoker, runtime_s3_bucket, runtime_s3_key, job_max_runtime):
+                 invoker, runtime_s3_bucket, runtime_s3_key, job_max_runtime, conda_runtime_dir="/tmp/condaruntime"):
         self.aws_region = aws_region
         self.s3_bucket = s3_bucket
         self.s3_prefix = s3_prefix
@@ -46,6 +46,7 @@ class Executor(object):
         self.runtime_bucket = runtime_s3_bucket
         self.runtime_key = runtime_s3_key
         self.runtime_meta_info = runtime.get_runtime_info(runtime_s3_bucket, runtime_s3_key)
+        self.conda_runtime_dir = conda_runtime_dir
         if not runtime.runtime_key_valid(self.runtime_meta_info):
             raise Exception("The indicated runtime: s3://{}/{} is not approprite for this python version".format(runtime_s3_bucket, runtime_s3_key))
 
@@ -97,6 +98,7 @@ class Executor(object):
                     'use_cached_runtime' : use_cached_runtime,
                     'runtime_s3_bucket' : self.runtime_bucket,
                     'runtime_s3_key' : self.runtime_key,
+                    'conda_runtime_dir': self.conda_runtime_dir,
                     'pywren_version' : version.__version__,
                     'runtime_url' : runtime_url }
 
