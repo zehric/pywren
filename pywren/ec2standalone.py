@@ -34,6 +34,9 @@ def create_instance_profile(instance_profile_name):
 
 def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type, 
                      instance_name, instance_profile_name, sqs_queue_name, 
+                     supervisord_config,
+                     supervisord_init,
+                     cloud_init,
                      default_volume_size=100, 
                      max_idle_time=60, idle_terminate_granularity=600, 
                      pywren_git_branch='master', 
@@ -57,14 +60,14 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
             },
         },
     ]
-    template_file = sd('ec2standalone.cloudinit.template')
 
+    template_file = cloud_init
     user_data = open(template_file, 'r').read()
 
-    supervisord_init_script = open(sd('supervisord.init'), 'r').read()
+    supervisord_init_script = open(supervisord_init, 'r').read()
     supervisord_init_script_64 = b64s(supervisord_init_script)
 
-    supervisord_conf = open(sd('supervisord.conf'), 'r').read()
+    supervisord_conf = open(supervisord_config, 'r').read()
     logger.info("Running with idle_terminate_granularity={}".format(idle_terminate_granularity))
     supervisord_conf = supervisord_conf.format(run_dir = "/tmp/pywren.runner", 
                                                sqs_queue_name=sqs_queue_name, 
@@ -80,7 +83,7 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
     if pywren_git_commit is not None:
         # use a git commit
         git_checkout_string = str(pywren_git_commit)
-    else: 
+    else:
         git_checkout_string = "-b {}".format(pywren_git_branch)
 
     user_data = user_data.format(supervisord_init_script = supervisord_init_script_64, 
@@ -94,6 +97,17 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
 
     iam = boto3.resource('iam')
     instance_profile = iam.InstanceProfile(instance_profile_name)
+    instance_profile_dict =  {'Name' : instance_profile.name}
+    
+    instances = _create_instances(number, aws_region, 
+                                  spot_price, ami=tgt_ami, 
+                                  key_name = my_aws_key, 
+                                  instance_type=instance_type, 
+                                  security_group_ids = [],
+                                  ebs_optimized = False, 
+                                  instance_profile = instance_profile_dict, 
+                                  user_data = user_data)
+
     # FIXME there's a race condition where we could end up with two 
     # instances with the same name but that's ok
     existing_instance_names = [a[0] for a in list_instances(aws_region, 
