@@ -31,7 +31,7 @@ runcmd:
   - [ sudo, -Hu, ubuntu, sh, -c, "git clone https://github.com/ericmjonas/pywren.git /home/ubuntu/pywren"]
   - [ sudo, -Hu, ubuntu, sh, -c, "git -C /home/ubuntu/pywren checkout {git_checkout_string}"]
   - [ sudo, -Hu, ubuntu, sh, -c, "/home/ubuntu/anaconda/bin/pip install -e /home/ubuntu/pywren"]
-  - [ sudo, -Hu, ubuntu, sh, -c, "/home/ubuntu/anaconda/bin/pip install glob2"]
+  - [ sudo, -Hu, ubuntu, sh, -c, "/home/ubuntu/anaconda3/bin/pip install glob2"]
   - [ ls, /etc/init.d/]
   - mkdir /var/run/supervisor
   - chown ubuntu /var/run/supervisor
