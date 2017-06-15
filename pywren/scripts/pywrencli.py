@@ -433,20 +433,29 @@ def log_url(ctx):
               help='which branch to use on the stand-alone')
 @click.option('--pywren_git_commit', default=None, 
               help='which git to use on the stand-alone (superceeds pywren_git_branch')
+@click.option('--spot_price', default=None, type=float, 
+              help='use spot instances, at this reserve price')
 def standalone_launch_instances(ctx, number, max_idle_time, 
                                 idle_terminate_granularity, 
-                                pywren_git_branch, pywren_git_commit):
+                                pywren_git_branch, pywren_git_commit, 
+                                spot_price):
     config_filename = ctx.obj['config_filename']
     config = pywren.wrenconfig.load(config_filename)
-
-    sc= config['standalone']
+    default_config_path = os.path.join(pywren.SOURCE_DIR, "ec2_standalone_files")
+    supervisord_config = config['standalone'].get("supervisord_config", os.path.join(default_config_path, "supervisord_default.conf"))
+    supervisord_init = config['standalone'].get("supervisord_init", os.path.join(default_config_path, "supervisord_default.init"))
+    cloud_init = config['standalone'].get("cloud_init", os.path.join(default_config_path, "ec2standalone.cloudinit_default.init"))
+    print(supervisord_init)
+    print(supervisord_config)
+    print(cloud_init)
+    sc = config['standalone']
     aws_region = config['account']['aws_region']
 
     if max_idle_time is not None:
         sc['max_idle_time'] = max_idle_time
     if idle_terminate_granularity is not None:
         sc['idle_terminate_granularity'] = idle_terminate_granularity
-            
+
     inst_list = ec2standalone.launch_instances(number, 
                                                sc['target_ami'], aws_region, 
                                                sc['ec2_ssh_key'], 
@@ -454,10 +463,14 @@ def standalone_launch_instances(ctx, number, max_idle_time,
                                                sc['instance_name'],
                                                sc['instance_profile_name'], 
                                                sc['sqs_queue_name'], 
-                                               sc['max_idle_time'], 
+                                               max_idle_time=sc['max_idle_time'], 
+                                               supervisord_config=supervisord_config,
+                                               supervisord_init=supervisord_init,
+                                               cloud_init=cloud_init,
                                                idle_terminate_granularity = sc['idle_terminate_granularity'], 
                                                pywren_git_branch=pywren_git_branch, 
-                                               pywren_git_commit = pywren_git_commit)
+                                               pywren_git_commit = pywren_git_commit, 
+                                               spot_price = spot_price)
     
     print("launched:")
     ec2standalone.prettyprint_instances(inst_list)
@@ -471,7 +484,6 @@ def standalone_list_instances(ctx):
 
     aws_region = config['account']['aws_region']
     sc= config['standalone']
-    
     inst_list = ec2standalone.list_instances(aws_region, sc['instance_name'])
     ec2standalone.prettyprint_instances(inst_list)
 

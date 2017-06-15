@@ -17,6 +17,8 @@ import logging
 import watchtower
 import subprocess
 import math
+import sys
+import platform 
 try:
     # For Python 3.0 and later
     from urllib.request import urlopen
@@ -87,13 +89,13 @@ def check_is_ec2():
     except: 
         return False
 
-def ec2_self_terminate(idle_time, uptime, message_count):
+def ec2_self_terminate(idle_time, uptime, message_count, in_minutes=0):
     if check_is_ec2():
         logger.info("self-terminating after idle for {:.0f} sec ({:.0f} s uptime), processed {:d} messages".format(idle_time, uptime, message_count))
         for h in logger.handlers:
             h.flush()
 
-        subprocess.call("sudo shutdown -h now", shell=True)
+        subprocess.call("sudo shutdown -h +{:d}".format(in_minutes), shell=True) # slight delay
     else:
         logger.warn("attempted to self-terminate on non-EC2 instance. Check config")
 
@@ -160,9 +162,11 @@ def server_runner(aws_region, sqs_queue_name,
                 if time_frac > terminate_thold_sec:
                     logger.info("Instance has been up for {:.0f} and inactive for {:.0f}, terminating".format(my_uptime, 
                                                                                                               idle_time))
-                    for h in logger.handlers:
-                        h.flush()
-                    ec2_self_terminate(idle_time, my_uptime, message_count)
+                    ec2_self_terminate(idle_time, my_uptime, message_count, in_minutes=1)
+                    # sometimes these appear to hang, so we are skipping them and instead calling sys.exit
+                    #for h in logger.handlers:
+                    #    h.flush()
+                    sys.exit(0)
 
 
 def process_message(m, local_message_i, max_run_time, run_dir, 
@@ -287,11 +291,16 @@ def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
     logging.getLogger('boto').setLevel(logging.CRITICAL)
     logging.getLogger('boto3').setLevel(logging.CRITICAL)
     logging.getLogger('botocore').setLevel(logging.CRITICAL)
-    
 
-    instance = get_my_ec2_instance(aws_region)
-    ec2_metadata = get_my_ec2_meta(instance)
-    server_name = ec2_metadata['Name']
+    if platform.node() != 'c65':
+        instance = get_my_ec2_instance(aws_region)
+        ec2_metadata = get_my_ec2_meta(instance)
+        server_name = ec2_metadata.get('Name', 'ec2')
+        log_stream_prefix = ec2_metadata['instance_id'] + "-pid-" + str(os.getpid())
+    else:
+        server_name='c65'
+        log_stream_prefix='millennium-c65'
+
     log_format_str ='{} %(asctime)s - %(name)s - %(levelname)s - %(message)s'.format(server_name)
     log_stream_prefix = ec2_metadata['instance_id']
 
