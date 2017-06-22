@@ -54,11 +54,6 @@ def download_runtime_if_necessary(s3conn, conda_runtime_dir, runtime_s3_bucket, 
     logger.debug("Runtime etag dir={}".format(runtime_etag_dir))
     expected_target = os.path.join(runtime_etag_dir, 'condaruntime')    
     logger.debug("Expected target={}".format(expected_target))
-    # check if dir exists
-    if os.path.exists(conda_runtime_dir) :
-        return True
-
-    '''
     # check if dir is linked to correct runtime
     if os.path.exists(RUNTIME_LOC):
         if os.path.exists(conda_runtime_dir) :
@@ -69,7 +64,6 @@ def download_runtime_if_necessary(s3conn, conda_runtime_dir, runtime_s3_bucket, 
             if existing_link == expected_target:
                 logger.debug("found existing {}, not re-downloading".format(ETag))
                 return True
-    '''
 
     logger.debug("{} not cached, downloading".format(ETag))
     # didn't cache, so we start over
