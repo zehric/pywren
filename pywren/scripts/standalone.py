@@ -32,9 +32,9 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-SQS_VISIBILITY_SEC = 90
+SQS_VISIBILITY_SEC = 10
 RANDOM_CLOUDWATCH_SLEEP_SEC= 120
-PROCESS_SLEEP_DUR_SEC= 10
+PROCESS_SLEEP_DUR_SEC= 2
 AWS_REGION_DEBUG='us-west-2'
 QUEUE_SLEEP_DUR_SEC=2
 IDLE_TERMINATE_THRESHOLD = 0.95
@@ -366,7 +366,7 @@ def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
     #debug_stream_handler = logging.StreamHandler()
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.WARN)
 
     #logger.addHandler(debug_stream_handler)
 
