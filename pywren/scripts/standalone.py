@@ -241,7 +241,7 @@ def copy_runtime(tgt_dir):
 def job_handler(event, job_i, run_dir, aws_region, 
                 server_name, log_stream_prefix, 
                 extra_context = None, 
-                delete_taskdir=True):
+                delete_taskdir=False):
     """
     Run a deserialized job in run_dir
 
