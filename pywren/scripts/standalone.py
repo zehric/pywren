@@ -278,7 +278,7 @@ def job_handler(event, job_i, run_dir, aws_region,
     task_run_dir = os.path.join(run_dir, str(job_i) + "_" + str(os.getpid()))
     try:
         os.makedirs(task_run_dir)
-    except FileExistsError as e:
+    except OSError as e:
         pass
     copy_runtime(task_run_dir)
 
