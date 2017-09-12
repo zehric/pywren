@@ -5,7 +5,8 @@ import os
 
 from  .exceptions import StorageNoSuchKeyError, StorageOutputNotFoundError
 from .s3_backend import S3Backend
-from .storage_utils import create_status_key, create_output_key, status_key_suffix, create_cancel_key
+from .storage_utils import create_status_key, create_output_key
+from .storage_utils import status_key_suffix, create_cancel_key
 
 
 class Storage(object):

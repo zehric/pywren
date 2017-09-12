@@ -306,21 +306,20 @@ def generic_handler(event, context_dict):
                 time.sleep(PROCESS_STDOUT_SLEEP_SECS)
             total_runtime = time.time() - start_time
             time_since_cancel_check = time.time() - time_of_last_cancel_check
-            print("here:", s3_bucket, cancel_key, 
-                  get_key_size(s3_client, s3_bucket, cancel_key), 
+            print("here:", s3_bucket, cancel_key,
+                  get_key_size(s3_client, s3_bucket, cancel_key),
                   time_since_cancel_check)
             if time_since_cancel_check > CANCEL_CHECK_EVERY_SECS:
-                
+
                 if key_exists(s3_client, s3_bucket, cancel_key):
                     logger.info("invocation cancelled")
                     print("CANCELING")
                     # kill the process
                     os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                    raise Exception("CANCELLED", 
+                    raise Exception("CANCELLED",
                                     "Function canceled")
-                time_since_last_cancel_check = time.time()
+                time_of_last_cancel_check = time.time()
 
-                
             if total_runtime > job_max_runtime:
                 logger.warning("Process exceeded maximum runtime of {} sec".format(job_max_runtime))
                 # Send the signal to all the process groups
