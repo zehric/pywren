@@ -58,6 +58,13 @@ class ResponseFuture(object):
         self._state = new_state
 
     def cancel(self):
+        storage_config = wrenconfig.extract_storage_config(wrenconfig.default())
+        storage_handler = storage.Storage(storage_config)
+
+        call_status = storage_handler.get_call_status(self.callset_id, 
+                                                      self.call_id)
+
+
         raise NotImplementedError("Cannot cancel dispatched jobs")
 
     def cancelled(self):

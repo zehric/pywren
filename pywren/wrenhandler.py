@@ -33,6 +33,7 @@ JOBRUNNER_STATS_FILENAME = "/tmp/jobrunner.stats.txt"
 logger = logging.getLogger(__name__)
 
 PROCESS_STDOUT_SLEEP_SECS = 2
+CANCEL_CHECK_EVERY_SECS = 5.0
 
 def get_key_size(s3client, bucket, key):
     try:
@@ -43,6 +44,9 @@ def get_key_size(s3client, bucket, key):
             return None
         else:
             raise e
+
+def key_exists(s3client, bucket, key):
+    return get_key_size(s3client, bucket, key) is not None
 
 def free_disk_space(dirname):
     """
@@ -170,6 +174,13 @@ def generic_handler(event, context_dict):
         status_key = event['status_key']
         func_key = event['func_key']
         data_key = event['data_key']
+        canceled_key = event['canceled_key']
+
+        # Check for cancel
+        if key_exists(s3_client, s3_bucket, canceled_key):
+            raise Exception("Function canceled")
+        time_of_last_cancel_check = time.time()
+
         data_byte_range = event['data_byte_range']
         output_key = event['output_key']
 
@@ -283,7 +294,10 @@ def generic_handler(event, context_dict):
         t.start()
 
         stdout = b""
+
+
         while t.isAlive():
+            # This is the main loop which consumes stdout data
             try:
                 line = q.get_nowait()
                 stdout += line
@@ -291,6 +305,17 @@ def generic_handler(event, context_dict):
             except Empty:
                 time.sleep(PROCESS_STDOUT_SLEEP_SECS)
             total_runtime = time.time() - start_time
+            time_since_cancel_check = time_of_last_cancel_check - time.time()
+            if time_since_cancel_check > CHECK_CANCEL_EVERY_SECS:
+                
+                if key_exists(s3_client, s3_bucket, canceled_key):
+                    # kill the process
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                    raise Exception("CANCELLED", 
+                                    "Function canceled")
+                time_since_last_cancel_check = time.time()
+
+                
             if total_runtime > job_max_runtime:
                 logger.warning("Process exceeded maximum runtime of {} sec".format(job_max_runtime))
                 # Send the signal to all the process groups
