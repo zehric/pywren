@@ -86,7 +86,7 @@ def create_keys(prefix, callset_id, call_id):
     output_key = create_output_key(prefix, callset_id, call_id)
     status_key = create_status_key(prefix, callset_id, call_id)
     cancel_key = create_cancel_key(prefix, callset_id, call_id)
-    return data_key, output_key, status_key
+    return data_key, output_key, status_key, cancel_key
 
 
 def get_storage_path(config):

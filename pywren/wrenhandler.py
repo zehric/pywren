@@ -174,10 +174,10 @@ def generic_handler(event, context_dict):
         status_key = event['status_key']
         func_key = event['func_key']
         data_key = event['data_key']
-        canceled_key = event['canceled_key']
+        cancel_key = event['cancel_key']
 
         # Check for cancel
-        if key_exists(s3_client, s3_bucket, canceled_key):
+        if key_exists(s3_client, s3_bucket, cancel_key):
             raise Exception("Function canceled")
         time_of_last_cancel_check = time.time()
 
@@ -305,10 +305,15 @@ def generic_handler(event, context_dict):
             except Empty:
                 time.sleep(PROCESS_STDOUT_SLEEP_SECS)
             total_runtime = time.time() - start_time
-            time_since_cancel_check = time_of_last_cancel_check - time.time()
-            if time_since_cancel_check > CHECK_CANCEL_EVERY_SECS:
+            time_since_cancel_check = time.time() - time_of_last_cancel_check
+            print("here:", s3_bucket, cancel_key, 
+                  get_key_size(s3_client, s3_bucket, cancel_key), 
+                  time_since_cancel_check)
+            if time_since_cancel_check > CANCEL_CHECK_EVERY_SECS:
                 
-                if key_exists(s3_client, s3_bucket, canceled_key):
+                if key_exists(s3_client, s3_bucket, cancel_key):
+                    logger.info("invocation cancelled")
+                    print("CANCELING")
                     # kill the process
                     os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                     raise Exception("CANCELLED", 

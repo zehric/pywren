@@ -58,14 +58,13 @@ class ResponseFuture(object):
         self._state = new_state
 
     def cancel(self):
+        # FIRST This is annoying; how will it have the custom access
+        # to the storage handler information
+
         storage_config = wrenconfig.extract_storage_config(wrenconfig.default())
         storage_handler = storage.Storage(storage_config)
-
-        call_status = storage_handler.get_call_status(self.callset_id, 
-                                                      self.call_id)
-
-
-        raise NotImplementedError("Cannot cancel dispatched jobs")
+        storage_handler.put_canceled(self.callset_id,
+                                     self.call_id, "foo")
 
     def cancelled(self):
         raise NotImplementedError("Cannot cancel dispatched jobs")
@@ -80,7 +79,8 @@ class ResponseFuture(object):
             return False
         return True
 
-    def result(self, timeout=None, check_only=False, throw_except=True, storage_handler=None):
+    def result(self, timeout=None, check_only=False,
+               throw_except=True, storage_handler=None):
         """
 
 
@@ -154,6 +154,10 @@ class ResponseFuture(object):
             elif exception_args[0] == "OUTATIME":
                 if throw_except:
                     raise Exception("process ran out of time")
+                return None
+            elif exception_args[0] == "CANCELED":
+                if throw_except:
+                    raise Exception("job was canceled")
                 return None
             else:
                 if throw_except:

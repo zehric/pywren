@@ -5,7 +5,7 @@ import os
 
 from  .exceptions import StorageNoSuchKeyError, StorageOutputNotFoundError
 from .s3_backend import S3Backend
-from .storage_utils import create_status_key, create_output_key, status_key_suffix
+from .storage_utils import create_status_key, create_output_key, status_key_suffix, create_cancel_key
 
 
 class Storage(object):
@@ -50,6 +50,17 @@ class Storage(object):
         :return: None
         """
         return self.backend_handler.put_object(key, func)
+
+    def put_canceled(self, callset_id, call_id, canceled_data):
+        """
+        Put data to signal cancel into storage
+        :param key: cancel_key
+        :param func: canceled_data
+        :return: None
+        """
+        key = create_cancel_key(self.prefix, callset_id,
+                                call_id)
+        return self.backend_handler.put_object(key, canceled_data)
 
     def get_callset_status(self, callset_id):
         """
