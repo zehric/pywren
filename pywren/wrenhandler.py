@@ -333,12 +333,16 @@ def generic_handler(event, context_dict, custom_handler_env=None):
             if total_runtime > job_max_runtime:
                 logger.warning("Process exceeded maximum runtime of {} sec".format(job_max_runtime))
                 # Send the signal to all the process groups
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                 raise Exception("OUTATIME",
                                 "Process executed for too long and was killed")
 
 
         response_status['retcode'] = process.returncode
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        except:
+            pass
         logger.info("command execution finished, retcode= {}".format(process.returncode))
 
         if os.path.exists(JOBRUNNER_STATS_FILENAME):
