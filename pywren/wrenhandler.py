@@ -302,7 +302,7 @@ def generic_handler(event, context_dict, custom_handler_env=None):
         # This is copied from http://stackoverflow.com/a/17698359/4577954
         # reasons for setting process group: http://stackoverflow.com/a/4791612
         process = subprocess.Popen(cmdstr, shell=True, env=local_env, bufsize=1,
-                                   stdout=subprocess.PIPE, preexec_fn=os.setsid)
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setsid)
 
         logger.info("launched process")
         def consume_stdout(stdout, queue):
@@ -310,19 +310,32 @@ def generic_handler(event, context_dict, custom_handler_env=None):
                 for line in iter(stdout.readline, b''):
                     queue.put(line)
 
+        def consume_stderr(stderr, queue):
+            with stdout:
+                for line in iter(stderr.readline, b''):
+                    queue.put(line)
+
         q = Queue()
+        q2 = Queue()
 
         t = Thread(target=consume_stdout, args=(process.stdout, q))
+        t2 = Thread(target=consume_stderr, args=(process.stderr, q2))
         t.daemon = True
         t.start()
+        t2.daemon = True
+        t2.start()
 
         stdout = b""
+        stderr = b""
         while t.isAlive() or process.returncode is None:
             logger.info("Running {} {}".format(time.time(), process.returncode))
             try:
                 line = q.get_nowait()
+                line2 = q2.get_nowait()
                 stdout += line
+                stderr += line2
                 logger.info(line)
+                logger.info(line2)
             except Empty:
                 time.sleep(PROCESS_STDOUT_SLEEP_SECS)
             process.poll() # this updates retcode but does not block
@@ -356,13 +369,13 @@ def generic_handler(event, context_dict, custom_handler_env=None):
         response_status['retcode'] = process.returncode
 
         response_status['stdout'] = stdout.decode("ascii")
+        response_status['stderr'] = stderr.decode("ascii")
 
         if process.returncode != 0:
             logger.warning("process returned non-zero retcode {}".format(process.returncode))
             logger.info(response_status['stdout'])
             raise Exception("RETCODE",
                             "Python process returned a non-zero return code")
-
 
         response_status['exec_time'] = time.time() - setup_time
         response_status['end_time'] = end_time
