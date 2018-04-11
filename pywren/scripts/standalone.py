@@ -112,7 +112,8 @@ def server_runner(aws_region, sqs_queue_name,
                   max_run_time, run_dir,
                   max_idle_time=None,
                   idle_terminate_granularity=None,
-                  queue_receive_message_timeout=10):
+                  queue_receive_message_timeout=10,
+                  num_executors=1):
     """
     Extract messages from queue and pass them off
     """
@@ -134,41 +135,62 @@ def server_runner(aws_region, sqs_queue_name,
                         "message timeout with headroom, instance will not self-terminate")
     message_count = 0
     idle_time = 0
-    while True:
-        logger.debug("reading queue")
-        response = queue.receive_messages(WaitTimeSeconds=queue_receive_message_timeout)
-        if len(response) > 0:
-            m = response[0]
-            logger.info("Dispatching message_id={}".format(m.message_id))
+    shared_state = {}
+    shared_state["last_processed_timestamp"] = time.time()
+    workers = []
+    for _ in range(num_executors):
+        worker = Thread(target=queue_worker, args=(shared_state,))
+        # is thread done
+        worker.start()
+        workers.append(worker)
 
-            process_message(m, local_message_i, max_run_time, run_dir)
-            message_count += 1
-            last_processed_timestamp = time.time()
-            idle_time = 0
-        else:
-            idle_time = time.time() - last_processed_timestamp
+    shutdowner = Thread(target=idle_terminate_loop, args=(shared_state,))
+    shutdowner.start()
 
-            logger.debug("no message, idle for {:3.0f} sec".format(idle_time))
+    def queue_worker(shared_state):
+        while True:
+            time.sleep(1)
+            logger.debug("reading queue")
+            response = queue.receive_messages(WaitTimeSeconds=queue_receive_message_timeout)
+            if len(response) > 0:
+                last_processed_timestamp = shared_state['last_processed_timestamp']
+                shared_state['last_processed_timestamp'] = max(time.time(), last_processed_timestamp)
+                m = response[0]
+                logger.info("Dispatching message_id={}".format(m.message_id))
+                process_message(m, local_message_i, max_run_time, run_dir)
+                message_count += 1
+                last_processed_timestamp = time.time()
+                idle_time = 0
+            else:
+                last_processed_timestamp = shared_state['last_processed_timestamp']
+                idle_time = time.time() - last_processed_timestamp
+                logger.debug("no message, idle for {:3.0f} sec".format(idle_time))
 
-        # this is EC2_only
-        if max_idle_time is not None and \
-           idle_terminate_granularity is not None:
-            if idle_time > max_idle_time:
-                my_uptime = get_my_uptime()
-                time_frac = (my_uptime % idle_terminate_granularity)
 
-                logger.debug("Instance has been up for " + \
-                    "{:.0f} and inactive for {:.0f} time_frac={:.0f} terminate_thold={:.0f}".format(
-                        my_uptime, idle_time, time_frac, terminate_thold_sec))
+        def idle_terminate_loop(shared_state):
+            while(True):
+                time.sleep(1)
+                # this is EC2_only
+                last_processed_timestamp = shared_state['last_processed_timestamp']
+                idle_time = time.time() - last_processed_timestamp
+                if max_idle_time is not None and \
+                   idle_terminate_granularity is not None:
+                    if idle_time > max_idle_time:
+                        my_uptime = get_my_uptime()
+                        time_frac = (my_uptime % idle_terminate_granularity)
 
-                if time_frac > terminate_thold_sec:
-                    logger.info("Instance has been up for {:.0f}"
-                                "and inactive for {:.0f}, terminating".format(my_uptime,
-                                                                              idle_time))
-                    ec2_self_terminate(idle_time, my_uptime,
-                                       message_count, in_minutes=1)
+                        logger.debug("Instance has been up for " + \
+                            "{:.0f} and inactive for {:.0f} time_frac={:.0f} terminate_thold={:.0f}".format(
+                                my_uptime, idle_time, time_frac, terminate_thold_sec))
 
-                    sys.exit(0)
+                        if time_frac > terminate_thold_sec:
+                            logger.info("Instance has been up for {:.0f}"
+                                        "and inactive for {:.0f}, terminating".format(my_uptime,
+                                                                                      idle_time))
+                            ec2_self_terminate(idle_time, my_uptime,
+                                               message_count, in_minutes=1)
+
+                            sys.exit(0)
 
 def process_message(m, local_message_i, max_run_time, run_dir):
 
@@ -303,8 +325,10 @@ def job_handler(event, job_i, run_dir,
               help="only terminate if we have been up for an integral number of this")
 @click.option('--queue_receive_message_timeout', default=10, type=int,
               help="longpoll timeout for getting sqs messages")
+@click.option('--num_executors', default=1, type=int,
+              help="number of sqs messages")
 def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
-           idle_terminate_granularity, queue_receive_message_timeout):
+           idle_terminate_granularity, queue_receive_message_timeout, num_executors):
 
 
     rand_sleep = random.random() * STARTUP_JITTER_SEC
@@ -373,4 +397,6 @@ def server(aws_region, max_run_time, run_dir, sqs_queue_name, max_idle_time,
                   #server_name, log_stream_prefix,
                   max_idle_time,
                   idle_terminate_granularity,
-                  queue_receive_message_timeout)
+                  queue_receive_message_timeout,
+                  num_executors
+                  )
