@@ -133,19 +133,6 @@ def server_runner(aws_region, sqs_queue_name,
     if not idle_granularity_valid(idle_terminate_granularity, queue_receive_message_timeout):
         raise Exception("Idle time granularity window smaller than queue receive " + \
                         "message timeout with headroom, instance will not self-terminate")
-    message_count = 0
-    idle_time = 0
-    shared_state = {}
-    shared_state["last_processed_timestamp"] = time.time()
-    workers = []
-    for _ in range(num_executors):
-        worker = Thread(target=queue_worker, args=(shared_state,))
-        # is thread done
-        worker.start()
-        workers.append(worker)
-
-    shutdowner = Thread(target=idle_terminate_loop, args=(shared_state,))
-    shutdowner.start()
 
     def queue_worker(shared_state):
         while True:
@@ -191,6 +178,19 @@ def server_runner(aws_region, sqs_queue_name,
                                                message_count, in_minutes=1)
 
                             sys.exit(0)
+    message_count = 0
+    idle_time = 0
+    shared_state = {}
+    shared_state["last_processed_timestamp"] = time.time()
+    workers = []
+    for _ in range(num_executors):
+        worker = Thread(target=queue_worker, args=(shared_state,))
+        # is thread done
+        worker.start()
+        workers.append(worker)
+
+    shutdowner = Thread(target=idle_terminate_loop, args=(shared_state,))
+    shutdowner.start()
 
 def process_message(m, local_message_i, max_run_time, run_dir):
 
