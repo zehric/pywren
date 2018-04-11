@@ -144,8 +144,8 @@ def server_runner(aws_region, sqs_queue_name,
                 shared_state['last_processed_timestamp'] = max(time.time(), last_processed_timestamp)
                 m = response[0]
                 logger.info("Dispatching message_id={}".format(m.message_id))
-                process_message(m, local_message_i, max_run_time, run_dir)
                 message_count += 1
+                process_message(m, hash(m.message_id), max_run_time, run_dir)
                 last_processed_timestamp = time.time()
                 idle_time = 0
             else:
@@ -178,7 +178,6 @@ def server_runner(aws_region, sqs_queue_name,
                                            message_count, in_minutes=1)
 
                         sys.exit(0)
-    message_count = 0
     idle_time = 0
     shared_state = {}
     shared_state["last_processed_timestamp"] = time.time()
