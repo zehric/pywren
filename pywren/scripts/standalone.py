@@ -154,30 +154,30 @@ def server_runner(aws_region, sqs_queue_name,
                 logger.debug("no message, idle for {:3.0f} sec".format(idle_time))
 
 
-        def idle_terminate_loop(shared_state):
-            while(True):
-                time.sleep(1)
-                # this is EC2_only
-                last_processed_timestamp = shared_state['last_processed_timestamp']
-                idle_time = time.time() - last_processed_timestamp
-                if max_idle_time is not None and \
-                   idle_terminate_granularity is not None:
-                    if idle_time > max_idle_time:
-                        my_uptime = get_my_uptime()
-                        time_frac = (my_uptime % idle_terminate_granularity)
+    def idle_terminate_loop(shared_state):
+        while(True):
+            time.sleep(1)
+            # this is EC2_only
+            last_processed_timestamp = shared_state['last_processed_timestamp']
+            idle_time = time.time() - last_processed_timestamp
+            if max_idle_time is not None and \
+               idle_terminate_granularity is not None:
+                if idle_time > max_idle_time:
+                    my_uptime = get_my_uptime()
+                    time_frac = (my_uptime % idle_terminate_granularity)
 
-                        logger.debug("Instance has been up for " + \
-                            "{:.0f} and inactive for {:.0f} time_frac={:.0f} terminate_thold={:.0f}".format(
-                                my_uptime, idle_time, time_frac, terminate_thold_sec))
+                    logger.debug("Instance has been up for " + \
+                        "{:.0f} and inactive for {:.0f} time_frac={:.0f} terminate_thold={:.0f}".format(
+                            my_uptime, idle_time, time_frac, terminate_thold_sec))
 
-                        if time_frac > terminate_thold_sec:
-                            logger.info("Instance has been up for {:.0f}"
-                                        "and inactive for {:.0f}, terminating".format(my_uptime,
-                                                                                      idle_time))
-                            ec2_self_terminate(idle_time, my_uptime,
-                                               message_count, in_minutes=1)
+                    if time_frac > terminate_thold_sec:
+                        logger.info("Instance has been up for {:.0f}"
+                                    "and inactive for {:.0f}, terminating".format(my_uptime,
+                                                                                  idle_time))
+                        ec2_self_terminate(idle_time, my_uptime,
+                                           message_count, in_minutes=1)
 
-                            sys.exit(0)
+                        sys.exit(0)
     message_count = 0
     idle_time = 0
     shared_state = {}
