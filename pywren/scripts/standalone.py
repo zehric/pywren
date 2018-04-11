@@ -133,8 +133,9 @@ def server_runner(aws_region, sqs_queue_name,
     if not idle_granularity_valid(idle_terminate_granularity, queue_receive_message_timeout):
         raise Exception("Idle time granularity window smaller than queue receive " + \
                         "message timeout with headroom, instance will not self-terminate")
-
+    message_count = 0
     def queue_worker(shared_state):
+        nonlocal message_count
         while True:
             time.sleep(1)
             logger.debug("reading queue")
