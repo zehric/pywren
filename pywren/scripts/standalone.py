@@ -191,6 +191,9 @@ def server_runner(aws_region, sqs_queue_name,
 
     shutdowner = Thread(target=idle_terminate_loop, args=(shared_state,))
     shutdowner.start()
+    shutdowner.join()
+
+
 
 def process_message(m, local_message_i, max_run_time, run_dir):
 
