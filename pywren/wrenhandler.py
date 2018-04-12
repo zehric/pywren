@@ -311,7 +311,7 @@ def generic_handler(event, context_dict, custom_handler_env=None):
                     queue.put(line)
 
         def consume_stderr(stderr, queue):
-            with stdout:
+            with stderr:
                 for line in iter(stderr.readline, b''):
                     queue.put(line)
 
