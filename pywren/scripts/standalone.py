@@ -166,7 +166,7 @@ def server_runner(aws_region, sqs_queue_name,
         try:
             ts = q.get(timeout=1)
             message_count += 1
-        except Queue.Empty:
+        except q.Empty:
             ts = last_processed_timestamp
             pass
         last_processed_timestamp = max(ts, last_processed_time_stamp)
