@@ -13,6 +13,7 @@ import sys
 import random
 
 from threading import Thread
+from multiprocessing import Process
 
 from glob2 import glob
 
@@ -215,7 +216,7 @@ def process_message(m, local_message_i, max_run_time, run_dir):
     message_id = m.message_id
 
     # id this in a thread: pywren.wrenhandler.generic_handler(event)
-    p = Thread(target=job_handler, args=(event, local_message_i,
+    p = Process(target=job_handler, args=(event, local_message_i,
                                          run_dir))
     # is thread done
     p.start()
@@ -276,8 +277,8 @@ def job_handler(event, job_i, run_dir,
     logger.info("jobhandler_thread callset_id={} call_id={}".format(callset_id, call_id))
 
     original_dir = os.getcwd()
-
     task_run_dir = os.path.join(run_dir, str(job_i))
+    print(task_run_dir)
     shutil.rmtree(task_run_dir, True) # delete old modules
     os.makedirs(task_run_dir)
     copy_runtime(task_run_dir)
