@@ -133,9 +133,9 @@ def server_runner(aws_region, sqs_queue_name,
     if not idle_granularity_valid(idle_terminate_granularity, queue_receive_message_timeout):
         raise Exception("Idle time granularity window smaller than queue receive " + \
                         "message timeout with headroom, instance will not self-terminate")
-    message_count = 0
+    message_count = [0]
     def queue_worker(shared_state):
-        nonlocal message_count
+
         while True:
             time.sleep(1)
             logger.debug("reading queue")
@@ -145,7 +145,7 @@ def server_runner(aws_region, sqs_queue_name,
                 shared_state['last_processed_timestamp'] = max(time.time(), last_processed_timestamp)
                 m = response[0]
                 logger.info("Dispatching message_id={}".format(m.message_id))
-                message_count += 1
+                message_count[0] += 1
                 process_message(m, hash(m.message_id), max_run_time, run_dir)
                 last_processed_timestamp = time.time()
                 idle_time = 0
@@ -176,7 +176,7 @@ def server_runner(aws_region, sqs_queue_name,
                                     "and inactive for {:.0f}, terminating".format(my_uptime,
                                                                                   idle_time))
                         ec2_self_terminate(idle_time, my_uptime,
-                                           message_count, in_minutes=1)
+                                           message_count[0], in_minutes=1)
 
                         sys.exit(0)
     idle_time = 0
