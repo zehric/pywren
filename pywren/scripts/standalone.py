@@ -169,7 +169,7 @@ def server_runner(aws_region, sqs_queue_name,
         except queues.Empty:
             ts = last_processed_timestamp
             pass
-        last_processed_timestamp = max(ts, last_processed_time_stamp)
+        last_processed_timestamp = max(ts, last_processed_timestamp)
         idle_time = time.time() - last_processed_timestamp
         if max_idle_time is not None and \
            idle_terminate_granularity is not None:
