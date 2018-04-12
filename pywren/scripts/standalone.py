@@ -162,6 +162,7 @@ def server_runner(aws_region, sqs_queue_name,
     last_processed_timestamp = time.time()
 
     while(True):
+        time.sleep(1)
         # this is EC2_only
         try:
             ts = q.get(timeout=1)
@@ -186,12 +187,9 @@ def server_runner(aws_region, sqs_queue_name,
                                 "and inactive for {:.0f}, terminating".format(my_uptime,
                                                                               idle_time))
                     ec2_self_terminate(idle_time, my_uptime,
-                                       message_count[0], in_minutes=1)
+                                       message_count, in_minutes=1)
 
                     sys.exit(0)
-    #shutdowner = Thread(target=idle_terminate_loop, args=(shared_state,))
-    #shutdowner.start()
-    #shutdowner.join()
 
 
 
