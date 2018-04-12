@@ -137,6 +137,7 @@ def server_runner(aws_region, sqs_queue_name,
     message_count = [0]
     def queue_worker(shared_state):
         while True:
+            time.sleep(0.01)
             logger.debug("reading queue")
             response = queue.receive_messages(WaitTimeSeconds=queue_receive_message_timeout)
             if len(response) > 0:
