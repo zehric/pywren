@@ -190,9 +190,12 @@ def server_runner(aws_region, sqs_queue_name,
         worker.start()
         workers.append(worker)
 
-    shutdowner = Thread(target=idle_terminate_loop, args=(shared_state,))
-    shutdowner.start()
-    shutdowner.join()
+    for worker in workers:
+        worker.join()
+    #shutdowner = Thread(target=idle_terminate_loop, args=(shared_state,))
+    #shutdowner.start()
+    #shutdowner.join()
+
 
 
 
