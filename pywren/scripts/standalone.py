@@ -13,7 +13,7 @@ import sys
 import random
 
 from threading import Thread
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue, queues
 
 from glob2 import glob
 
@@ -166,7 +166,7 @@ def server_runner(aws_region, sqs_queue_name,
         try:
             ts = q.get(timeout=1)
             message_count += 1
-        except q.Empty:
+        except queues.Empty:
             ts = last_processed_timestamp
             pass
         last_processed_timestamp = max(ts, last_processed_time_stamp)
