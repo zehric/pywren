@@ -13,7 +13,7 @@ import sys
 import random
 
 from threading import Thread
-from multiprocessing import Process
+from multiprocessing import Process, Queue
 
 from glob2 import glob
 
@@ -134,20 +134,17 @@ def server_runner(aws_region, sqs_queue_name,
     if not idle_granularity_valid(idle_terminate_granularity, queue_receive_message_timeout):
         raise Exception("Idle time granularity window smaller than queue receive " + \
                         "message timeout with headroom, instance will not self-terminate")
-    message_count = [0]
-    def queue_worker(shared_state):
+
+    def queue_worker(queue):
         while True:
             time.sleep(0.01)
             logger.debug("reading queue")
             response = queue.receive_messages(WaitTimeSeconds=queue_receive_message_timeout)
             if len(response) > 0:
-                last_processed_timestamp = shared_state['last_processed_timestamp']
-                shared_state['last_processed_timestamp'] = max(time.time(), last_processed_timestamp)
                 m = response[0]
                 logger.info("Dispatching message_id={}".format(m.message_id))
-                message_count[0] += 1
                 process_message(m, hash(m.message_id), max_run_time, run_dir)
-                last_processed_timestamp = time.time()
+                queue.put(time.time())
                 idle_time = 0
             else:
                 last_processed_timestamp = shared_state['last_processed_timestamp']
@@ -155,41 +152,45 @@ def server_runner(aws_region, sqs_queue_name,
                 logger.debug("no message, idle for {:3.0f} sec".format(idle_time))
 
 
-    def idle_terminate_loop(shared_state):
-        while(True):
-            # this is EC2_only
-            last_processed_timestamp = shared_state['last_processed_timestamp']
-            idle_time = time.time() - last_processed_timestamp
-            if max_idle_time is not None and \
-               idle_terminate_granularity is not None:
-                if idle_time > max_idle_time:
-                    my_uptime = get_my_uptime()
-                    time_frac = (my_uptime % idle_terminate_granularity)
-
-                    logger.debug("Instance has been up for " + \
-                        "{:.0f} and inactive for {:.0f} time_frac={:.0f} terminate_thold={:.0f}".format(
-                            my_uptime, idle_time, time_frac, terminate_thold_sec))
-
-                    if time_frac > terminate_thold_sec:
-                        logger.info("Instance has been up for {:.0f}"
-                                    "and inactive for {:.0f}, terminating".format(my_uptime,
-                                                                                  idle_time))
-                        ec2_self_terminate(idle_time, my_uptime,
-                                           message_count[0], in_minutes=1)
-
-                        sys.exit(0)
+    message_count = 0
+    q = Queue()
     idle_time = 0
-    shared_state = {}
-    shared_state["last_processed_timestamp"] = time.time()
     workers = []
     for _ in range(num_executors):
-        worker = Thread(target=queue_worker, args=(shared_state,))
+        worker = Process(target=queue_worker, args=(q,))
         # is thread done
         worker.start()
         workers.append(worker)
+    message_count = 0
+    last_processed_timestamp = time.time()
+    while(True):
+        # this is EC2_only
+        try:
+            ts = q.get(timeout=1)
+            message_count += 1
+        except Queue.Empty:
+            ts = last_processed_timestamp
+            pass
+        last_processed_timestamp = max(ts, last_processed_time_stamp)
+        idle_time = time.time() - last_processed_timestamp
+        if max_idle_time is not None and \
+           idle_terminate_granularity is not None:
+            if idle_time > max_idle_time:
+                my_uptime = get_my_uptime()
+                time_frac = (my_uptime % idle_terminate_granularity)
 
-    for worker in workers:
-        worker.join()
+                logger.debug("Instance has been up for " + \
+                    "{:.0f} and inactive for {:.0f} time_frac={:.0f} terminate_thold={:.0f}".format(
+                        my_uptime, idle_time, time_frac, terminate_thold_sec))
+
+                if time_frac > terminate_thold_sec:
+                    logger.info("Instance has been up for {:.0f}"
+                                "and inactive for {:.0f}, terminating".format(my_uptime,
+                                                                              idle_time))
+                    ec2_self_terminate(idle_time, my_uptime,
+                                       message_count[0], in_minutes=1)
+
+                    sys.exit(0)
     #shutdowner = Thread(target=idle_terminate_loop, args=(shared_state,))
     #shutdowner.start()
     #shutdowner.join()
