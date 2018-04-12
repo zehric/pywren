@@ -136,9 +136,7 @@ def server_runner(aws_region, sqs_queue_name,
                         "message timeout with headroom, instance will not self-terminate")
     message_count = [0]
     def queue_worker(shared_state):
-
         while True:
-            time.sleep(1)
             logger.debug("reading queue")
             response = queue.receive_messages(WaitTimeSeconds=queue_receive_message_timeout)
             if len(response) > 0:
@@ -158,7 +156,6 @@ def server_runner(aws_region, sqs_queue_name,
 
     def idle_terminate_loop(shared_state):
         while(True):
-            time.sleep(1)
             # this is EC2_only
             last_processed_timestamp = shared_state['last_processed_timestamp']
             idle_time = time.time() - last_processed_timestamp
