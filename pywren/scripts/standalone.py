@@ -122,7 +122,6 @@ def server_runner(aws_region, sqs_queue_name,
     sqs = boto3.resource('sqs', region_name=aws_region)
 
     # Get the queue
-    queue = sqs.get_queue_by_name(QueueName=sqs_queue_name)
     local_message_i = 0
     last_processed_timestamp = time.time()
 
@@ -135,21 +134,19 @@ def server_runner(aws_region, sqs_queue_name,
         raise Exception("Idle time granularity window smaller than queue receive " + \
                         "message timeout with headroom, instance will not self-terminate")
 
-    def queue_worker(queue):
+    def queue_worker(sqs_queue_name, q, max_run_time, run_dir):
         while True:
-            time.sleep(0.01)
+            queue = sqs.get_queue_by_name(QueueName=sqs_queue_name)
             logger.debug("reading queue")
-            response = queue.receive_messages(WaitTimeSeconds=queue_receive_message_timeout)
+            response = queue.receive_messages()
             if len(response) > 0:
                 m = response[0]
                 logger.info("Dispatching message_id={}".format(m.message_id))
                 process_message(m, hash(m.message_id), max_run_time, run_dir)
-                queue.put(time.time())
+                q.put(time.time())
                 idle_time = 0
             else:
-                last_processed_timestamp = shared_state['last_processed_timestamp']
-                idle_time = time.time() - last_processed_timestamp
-                logger.debug("no message, idle for {:3.0f} sec".format(idle_time))
+                pass
 
 
     message_count = 0
@@ -157,12 +154,13 @@ def server_runner(aws_region, sqs_queue_name,
     idle_time = 0
     workers = []
     for _ in range(num_executors):
-        worker = Process(target=queue_worker, args=(q,))
+        worker = Process(target=queue_worker, args=(sqs_queue_name, q, max_run_time, run_dir))
         # is thread done
         worker.start()
         workers.append(worker)
     message_count = 0
     last_processed_timestamp = time.time()
+
     while(True):
         # this is EC2_only
         try:
