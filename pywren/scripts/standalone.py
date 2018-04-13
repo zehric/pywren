@@ -142,8 +142,9 @@ def server_runner(aws_region, sqs_queue_name,
             if len(response) > 0:
                 m = response[0]
                 logger.info("Dispatching message_id={}".format(m.message_id))
+                q.put((1, time.time()))
                 process_message(m, hash(m.message_id), max_run_time, run_dir)
-                q.put(time.time())
+                q.put((-1, time.time()))
                 idle_time = 0
             else:
                 pass
@@ -160,20 +161,28 @@ def server_runner(aws_region, sqs_queue_name,
         workers.append(worker)
     message_count = 0
     last_processed_timestamp = time.time()
-
+    live_messages = 0
     while(True):
         time.sleep(1)
         # this is EC2_only
         try:
-            ts = q.get(timeout=1)
-            message_count += 1
+            m_delta, ts = q.get(timeout=1)
+            if (m_delta == 1):
+                message_count += 1
+                live_messages += 1
+            elif (m_delta == -1):
+                live_messages -= 1
+            else:
+                raise Exception("unknown state")
         except queues.Empty:
+            m_delta = 0
             ts = last_processed_timestamp
             pass
         last_processed_timestamp = max(ts, last_processed_timestamp)
         idle_time = time.time() - last_processed_timestamp
         if max_idle_time is not None and \
-           idle_terminate_granularity is not None:
+           idle_terminate_granularity is not None and \
+           live_messages == 0:
             if idle_time > max_idle_time:
                 my_uptime = get_my_uptime()
                 time_frac = (my_uptime % idle_terminate_granularity)
