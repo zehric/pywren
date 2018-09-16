@@ -1,4 +1,20 @@
-import os
+#
+# Copyright 2018 PyWren Team
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+import posixpath
 
 from .exceptions import StorageConfigMismatchError
 
@@ -15,7 +31,7 @@ def create_func_key(prefix, callset_id):
     :param callset_id: callset's ID
     :return: function key
     """
-    func_key = os.path.join(prefix, callset_id, func_key_suffix)
+    func_key = posixpath.join(prefix, callset_id, func_key_suffix)
     return func_key
 
 
@@ -26,7 +42,7 @@ def create_agg_data_key(prefix, callset_id):
     :param callset_id: callset's ID
     :return: a key for aggregate data
     """
-    agg_data_key = os.path.join(prefix, callset_id, agg_data_key_suffix)
+    agg_data_key = posixpath.join(prefix, callset_id, agg_data_key_suffix)
     return agg_data_key
 
 
@@ -38,7 +54,7 @@ def create_data_key(prefix, callset_id, call_id):
     :param call_id: call's ID
     :return: data key
     """
-    return os.path.join(prefix, callset_id, call_id, data_key_suffix)
+    return posixpath.join(prefix, callset_id, call_id, data_key_suffix)
 
 
 def create_output_key(prefix, callset_id, call_id):
@@ -49,7 +65,7 @@ def create_output_key(prefix, callset_id, call_id):
     :param call_id: call's ID
     :return: output key
     """
-    return os.path.join(prefix, callset_id, call_id, output_key_suffix)
+    return posixpath.join(prefix, callset_id, call_id, output_key_suffix)
 
 
 def create_status_key(prefix, callset_id, call_id):
@@ -60,7 +76,7 @@ def create_status_key(prefix, callset_id, call_id):
     :param call_id: call's ID
     :return: status key
     """
-    return os.path.join(prefix, callset_id, call_id, status_key_suffix)
+    return posixpath.join(prefix, callset_id, call_id, status_key_suffix)
 
 
 def create_keys(prefix, callset_id, call_id):

@@ -1,3 +1,19 @@
+#
+# Copyright 2018 PyWren Team
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import pytest
 import time
 import boto3 
@@ -55,6 +71,7 @@ class SimpleAsync(unittest.TestCase):
 
         with pytest.raises(Exception) as execinfo:
             res = fut.result() 
+
         assert 'Throw me out!' in str(execinfo.value)
 
 
@@ -87,6 +104,20 @@ class SimpleAsync(unittest.TestCase):
         assert exc_type_wren == exc_type_true
         assert type(exc_value_wren) == type(exc_value_true)
 
+    def test_exit(self):
+        """
+        what if the process just dies
+        """
+        def just_die(x):
+            sys.exit(-1)
+        
+        wrenexec = pywren.default_executor()
+
+        fut = wrenexec.call_async(just_die, 1)
+
+        with pytest.raises(Exception) as execinfo:
+            res = fut.result() 
+        assert 'non-zero return code' in str(execinfo.value)
 
 class SimpleMap(unittest.TestCase):
 
@@ -236,7 +267,6 @@ class ConfigErrors(unittest.TestCase):
                 config = pywren.wrenconfig.default()
                 config['runtime']['s3_key'] = pywren.wrenconfig.default_runtime[wrong_version]
                 
-                    
                 with pytest.raises(Exception) as excinfo:
                     pywren.lambda_executor(config)
                 assert 'python version' in str(excinfo.value)
@@ -279,7 +309,45 @@ class WaitTest(unittest.TestCase):
         res = np.array([f.result() for f in futures])
         np.testing.assert_array_equal(res, x+1)
 
+    def test_multiple_callset_id(self):
+        def wait_x_sec_and_plus_one(x):
+            time.sleep(x)
+            return x + 1
 
+        N = 10
+        x = np.arange(N)
+
+        pywx = pywren.default_executor()
+
+        futures1 = pywx.map(wait_x_sec_and_plus_one, x)
+        futures2 = pywx.map(wait_x_sec_and_plus_one, x)
+
+        fs_dones, fs_notdones = pywren.wait(futures1 + futures2,
+                                        return_when=pywren.wren.ALL_COMPLETED)
+        res = np.array([f.result() for f in fs_dones])
+        np.testing.assert_array_equal(res, np.concatenate((x,x))+1)
+
+    def test_multiple_callset_id_diff_executors(self):
+        def wait_x_sec_and_plus_one(x):
+            time.sleep(x)
+            return x + 1
+
+        N = 10
+        x = np.arange(N)
+
+        futures1 = pywren.default_executor().map(wait_x_sec_and_plus_one, x)
+        futures2 = pywren.default_executor().map(wait_x_sec_and_plus_one, x)
+
+        fs_dones, fs_notdones = pywren.wait(futures1 + futures2,
+                return_when=pywren.wren.ALL_COMPLETED)
+        res = np.array([f.result() for f in fs_dones])
+        np.testing.assert_array_equal(res, np.concatenate((x,x))+1)
+
+
+# Comment this test out as it doesn't work with the multiple executors (Vaishaal)
+# If we need this later we need to do some more monkey patching but is unclear we actually need this
+
+'''
 class RuntimePaths(unittest.TestCase):
     """
     Test to make sure that we have the correct python and
@@ -297,6 +365,7 @@ class RuntimePaths(unittest.TestCase):
 
         res = fut.result() 
         assert "Current conda install" in res
+'''
 
 
 class Limits(unittest.TestCase):

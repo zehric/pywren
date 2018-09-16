@@ -1,7 +1,23 @@
+#
+# Copyright 2018 PyWren Team
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from __future__ import absolute_import
 
 import json
-import os
+import posixpath
 
 from  .exceptions import StorageNoSuchKeyError, StorageOutputNotFoundError
 from .s3_backend import S3Backend
@@ -59,7 +75,7 @@ class Storage(object):
         """
         # TODO: a better API for this is to return status for all calls in the callset. We'll fix
         #  this in scheduler refactoring.
-        callset_prefix = os.path.join(self.prefix, callset_id)
+        callset_prefix = posixpath.join(self.prefix, callset_id)
         keys = self.backend_handler.list_keys_with_prefix(callset_prefix)
         suffix = status_key_suffix
         status_keys = [k for k in keys if suffix in k]
