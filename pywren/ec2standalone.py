@@ -50,6 +50,7 @@ def create_instance_profile(instance_profile_name):
 
 def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
                      instance_name, instance_profile_name, sqs_queue_name,
+                     s3_bucket,
                      default_volume_size=100,
                      max_idle_time=60, idle_terminate_granularity=600,
                      pywren_git_branch='master',
@@ -91,6 +92,7 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
     supervisord_conf = supervisord_conf.format(
         run_dir="/tmp/pywren.runner",
         sqs_queue_name=sqs_queue_name,
+        s3_bucket=s3_bucket,
         aws_region=aws_region,
         max_idle_time=max_idle_time,
         idle_terminate_granularity=idle_terminate_granularity,

@@ -53,7 +53,8 @@ setup(
     entry_points={
         'console_scripts' : ['pywren=pywren.scripts.pywrencli:main',
                              'pywren-setup=pywren.scripts.setupscript:interactive_setup',
-                             'pywren-server=pywren.scripts.standalone:server']},
+                             'pywren-server=pywren.scripts.standalone:server',
+                             'pywren-cache=pywren.scripts.cache_server:server']},
     package_data={
         'pywren': ['default_config.yaml',
                    'ec2_standalone_files/ec2standalone.cloudinit.template',

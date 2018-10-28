@@ -502,32 +502,32 @@ def log_url(ctx):
     function_name = config['lambda']['function_name']
     aws_region = config['account']['aws_region']
     url = "https://" + \
-        "{}.console.aws.amazon.com/cloudwatch/home?region={}#logStream:group=/aws/lambda/{}".format(
-            aws_region, aws_region, function_name)
-    print(url)
+            "{}.console.aws.amazon.com/cloudwatch/home?region={}#logStream:group=/aws/lambda/{}".format(
+                    aws_region, aws_region, function_name)
+            print(url)
 
 
 @standalone.command('launch_instances')
 @click.pass_context
 @click.argument('number', default=1, type=int)
 @click.option('--max_idle_time', default=None, type=int,
-              help='instance queue idle time before checking self-termination')
+        help='instance queue idle time before checking self-termination')
 @click.option('--idle_terminate_granularity', default=None, type=int,
-              help='granularity of billing (sec)')
+        help='granularity of billing (sec)')
 @click.option('--parallelism', default=1, type=int,
-              help='Number of workers per machine')
+        help='Number of workers per machine')
 @click.option('--pywren_git_branch', default='master', type=str,
-              help='which branch to use on the stand-alone')
+        help='which branch to use on the stand-alone')
 @click.option('--pywren_git_commit', default=None,
-              help='which git to use on the stand-alone (supercedes pywren_git_branch)')
+        help='which git to use on the stand-alone (supercedes pywren_git_branch)')
 @click.option('--spot_price', default=None, type=float,
-              help='use spot instances, at this reserve price')
+        help='use spot instances, at this reserve price')
 @click.option('--instance_type', default=None, type=str,
-              help='launch this instance type')
+        help='launch this instance type')
 def standalone_launch_instances(ctx, number, max_idle_time, parallelism,
-                                idle_terminate_granularity,
-                                pywren_git_branch, pywren_git_commit,
-                                spot_price, instance_type):
+        idle_terminate_granularity,
+        pywren_git_branch, pywren_git_commit,
+        spot_price, instance_type):
     config_filename = ctx.obj['config_filename']
     config = pywren.wrenconfig.load(config_filename)
 
@@ -552,6 +552,7 @@ def standalone_launch_instances(ctx, number, max_idle_time, parallelism,
                                                sc['instance_name'],
                                                sc['instance_profile_name'],
                                                sc['sqs_queue_name'],
+                                               config['s3']['bucket'],
                                                max_idle_time=sc['max_idle_time'],
                                                idle_terminate_granularity=\
                                                sc['idle_terminate_granularity'],
