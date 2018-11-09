@@ -8,7 +8,7 @@ def client_run(id_, num_repeat, log_info):
     tick = time.time()
     key_pre = "test{}"
     client = Client(address='local_cache')
-    for i in range(20):
+    for i in range(10):
         key = key_pre.format(i)
         randarr = np.full((4096, 4096), i, dtype='float64')
         arr = np.memmap("/tmp/" + key, dtype='float64', mode='w+', shape=(4096,4096))
@@ -18,16 +18,25 @@ def client_run(id_, num_repeat, log_info):
         res = client.recv()
         print("put {}: {}".format(i, time.time() - start_time))
 
-    for i in range(20):
+    for i in range(10):
         key = key_pre.format(i)
         start_time = time.time()
-        client.send((0, key)) # get
+        client.send((0, key, True)) # get and pin
         res = client.recv()
         arr = np.memmap(res, dtype='float64', mode='r', shape=(4096,4096))
         print(arr)
         print("get {}: {}".format(i, time.time() - start_time))
         client.send((2, key)) # release
         res = client.recv()
+
+    for i in range(10):
+        key = key_pre.format(i)
+        start_time = time.time()
+        client.send((0, key)) # get and pin
+        res = client.recv()
+        arr = np.frombuffer(res, dtype='float64').reshape((4096, 4096))
+        print(arr)
+        print("get {}: {}".format(i, time.time() - start_time))
     # for _ in range(num_repeat):
     #     client.send((0, "test{}".format(id_)))
     #     get = client.recv()

@@ -55,7 +55,7 @@ class Cache(object):
     def __init__(self, config):
         self.storage = Storage(config)
         self.cache = collections.OrderedDict()
-        self.max_entries = 10 # TODO: to change this
+        self.max_entries = 1 # TODO: to change this
 
     def release(self, key):
         """
@@ -69,17 +69,20 @@ class Cache(object):
         return True
 
     def evict_if_full(self):
+        evict_key = None
         if len(self.cache) >= self.max_entries:
             for key, entry in self.cache.items():
                 if entry.ref_cnt == 0:
-                    del self.cache[key]
-                    if entry.dirty:
-                        self.storage.store(key, entry)
-                    entry.close()
-                    return
+                    evict_key = key
+                    break
+        if evict_key:
+            entry = self.cache.pop(evict_key)
+            if entry.dirty:
+                self.storage.store(key, entry)
+            entry.close()
         # TODO: do something if full
 
-    def get(self, key):
+    def get_and_pin(self, key):
         """
         Requests key from the cache. If it does not exist, request the data
         from the backing store. Pins the cache entry as well.
@@ -87,7 +90,8 @@ class Cache(object):
         :return: str path to shared data
         """
         if key in self.cache:
-            entry = self.cache[key]
+            entry = self.cache.pop(key)
+            self.cache[key] = entry
         else:
             entry = Entry(key, True)
             self.storage.load(key, entry)
@@ -96,6 +100,26 @@ class Cache(object):
 
         entry.ref_cnt += 1
         return entry.file_path
+
+    def get(self, key):
+        """
+        Requests key from the cache. If it does not exist, request the data
+        from the backing store. Does not pin the cache entry.
+        :param key: data key
+        :return: str path to shared data
+        """
+        if key in self.cache:
+            entry = self.cache.pop(key)
+            self.cache[key] = entry
+        else:
+            entry = Entry(key, True)
+            self.storage.load(key, entry)
+            self.evict_if_full()
+            self.cache[key] = entry
+
+        data = entry.data.read(entry.data.size())
+        entry.data.seek(0)
+        return data
 
     def put(self, key):
         """

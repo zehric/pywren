@@ -25,7 +25,9 @@ class CacheServer(object):
     def __init__(self, s3_bucket):
         self._cache = Cache(s3_bucket)
         self._socket_listener = Listener(address='local_cache')
-    def get(self, k):
+    def get(self, k, pin=False):
+        if pin:
+            return self._cache.get_and_pin(k)
         return self._cache.get(k)
     def put(self, k):
         return self._cache.put(k)
@@ -51,7 +53,10 @@ class CacheServer(object):
                 return
             else:
                 if request[0] == 0: # get
-                    client.send(self.get(request[1]))
+                    if len(request) < 3:
+                        client.send(self.get(request[1]))
+                    else:
+                        client.send(self.get(request[1], request[2]))
                 elif request[0] == 1: # put
                     client.send(self.put(request[1]))
                 elif request[0] == 2: # release
@@ -64,8 +69,7 @@ def cache_run(cache):
     cache._listen()
 
 @click.command()
-@click.option('--aws_region', default="us-west-2", help='aws region')
 @click.option('--s3_bucket', required=True, help='s3 bucket')
-def server(aws_region, s3_bucket):
+def server(s3_bucket):
     cache = CacheServer(s3_bucket)
     cache._listen()
