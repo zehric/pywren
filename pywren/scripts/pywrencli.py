@@ -504,7 +504,7 @@ def log_url(ctx):
     url = "https://" + \
             "{}.console.aws.amazon.com/cloudwatch/home?region={}#logStream:group=/aws/lambda/{}".format(
                     aws_region, aws_region, function_name)
-            print(url)
+    print(url)
 
 
 @standalone.command('launch_instances')

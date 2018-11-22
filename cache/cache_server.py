@@ -19,15 +19,13 @@ import sys
 import os
 from threading import Thread
 import click
-from pywren.storage.cache import Cache
+from cache import Cache
 
 class CacheServer(object):
     def __init__(self, s3_bucket):
         self._cache = Cache(s3_bucket)
         self._socket_listener = Listener(address='local_cache')
-    def get(self, k, pin=False):
-        if pin:
-            return self._cache.get_and_pin(k)
+    def get(self, k):
         return self._cache.get(k)
     def put(self, k):
         return self._cache.put(k)
@@ -53,10 +51,7 @@ class CacheServer(object):
                 return
             else:
                 if request[0] == 0: # get
-                    if len(request) < 3:
-                        client.send(self.get(request[1]))
-                    else:
-                        client.send(self.get(request[1], request[2]))
+                    client.send(self.get(request[1]))
                 elif request[0] == 1: # put
                     client.send(self.put(request[1]))
                 elif request[0] == 2: # release
@@ -73,3 +68,6 @@ def cache_run(cache):
 def server(s3_bucket):
     cache = CacheServer(s3_bucket)
     cache._listen()
+
+if __name__ == '__main__':
+    server()

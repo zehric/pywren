@@ -9,12 +9,33 @@ def put(client, key, randarr):
     arr[:] = randarr[:]
     client.send((1, key)) # put
     res = client.recv()
+    return arr
+
+def get_and_pin(client, key):
+    client.send((0, key)) # get and pin
+    res = client.recv()
+    arr = np.memmap(res, dtype='float64', mode='r', shape=(4096,4096))
+    client.send((2, key)) # release
+    res = client.recv()
+    return arr
+
+def get(client, key):
+    client.send((0, key)) # get
+    res = client.recv()
+    arr = np.memmap(res, dtype='float64', mode='r', shape=(4096,4096)).copy()
+    client.send((2, key)) # release
+    res = client.recv()
+    return arr
 
 def run_simple(id_, num_repeat, log_info):
     tick = time.time()
     key_pre = "test{}"
     client = Client(address='local_cache')
     # this benchmark assumes that the cache is the size of a single entry
+    res = ()
+    key = ""
+    randarr = np.array([[]])
+    start_time = time.time()
 
     warm_pins = []
     warm_gets = []
@@ -28,8 +49,9 @@ def run_simple(id_, num_repeat, log_info):
         key = key_pre.format(0)
         randarr = np.random.rand(4096, 4096)
         start_time = time.time()
-        put(client, "0", randarr)
+        arr = put(client, key, randarr)
         puts_no_evict.append(time.time() - start_time)
+        del arr
     
     # put with eviction
     i = 1
@@ -37,32 +59,30 @@ def run_simple(id_, num_repeat, log_info):
         key = key_pre.format(i)
         randarr = np.random.rand(4096, 4096)
         start_time = time.time()
-        put(client, str(i), randarr)
+        arr = put(client, key, randarr)
         puts_with_evict.append(time.time() - start_time)
+        del arr
         i = 1 - i
+
+    get_and_pin(client, "test1")
+    get_and_pin(client, "test0")
 
     # warm get and pin
     for _ in range(num_repeat):
         key = key_pre.format(0)
         start_time = time.time()
-        client.send((0, key, True)) # get and pin
-        res = client.recv()
-        arr = np.memmap(res, dtype='float64', mode='r', shape=(4096,4096))
-        # print(arr)
-        client.send((2, key)) # release
-        res = client.recv()
+        arr = get_and_pin(client, key)
         warm_pins.append(time.time() - start_time)
+        del arr
         # print("get {}: {}".format(i, time.time() - start_time))
 
     # warm get
     for _ in range(num_repeat):
         key = key_pre.format(0)
         start_time = time.time()
-        client.send((0, key))
-        res = client.recv()
-        arr = np.frombuffer(res, dtype='float64').reshape((4096, 4096))
-        # print(arr)
+        arr = get(client, key)
         warm_gets.append(time.time() - start_time)
+        del arr
         # print("get {}: {}".format(i, time.time() - start_time))
 
     #cold get and pin
@@ -70,13 +90,9 @@ def run_simple(id_, num_repeat, log_info):
     for _ in range(num_repeat):
         key = key_pre.format(i)
         start_time = time.time()
-        client.send((0, key, True)) # get and pin
-        res = client.recv()
-        arr = np.memmap(res, dtype='float64', mode='r', shape=(4096,4096))
-        # print(arr)
-        client.send((2, key)) # release
-        res = client.recv()
+        arr = get_and_pin(client, key)
         cold_pins.append(time.time() - start_time)
+        del arr
         i = 1 - i
 
     #cold get
@@ -84,21 +100,21 @@ def run_simple(id_, num_repeat, log_info):
     for _ in range(num_repeat):
         key = key_pre.format(i)
         start_time = time.time()
-        client.send((0, key))
-        res = client.recv()
-        arr = np.frombuffer(res, dtype='float64').reshape((4096, 4096))
-        # print(arr)
+        arr = get(client, key)
         cold_gets.append(time.time() - start_time)
+        del arr
         i = 1 - i
 
 
     tock = time.time()
     #log_info[id_] = {'total_time': (tock-tick), 'warm_pins': warm_pins, 'warm_gets': warm_gets, 'cold_pins': cold_pins, 'cold_gets': cold_gets}
 
-   # print("warm_pins: {}".format(warm_pins))
-   # print("warm_gets: {}".format(warm_gets))
-   # print("cold_pins: {}".format(cold_pins))
-   # print("cold_gets: {}".format(cold_gets))
+    print("no_evict_puts: {}".format(puts_no_evict))
+    print("evict_puts: {}".format(puts_with_evict))
+    print("warm_pins: {}".format(warm_pins))
+    print("warm_gets: {}".format(warm_gets))
+    print("cold_pins: {}".format(cold_pins))
+    print("cold_gets: {}".format(cold_gets))
 
     np.savez("cache_benchmarks_simple", no_evict_puts=puts_no_evict, evict_puts=puts_with_evict, warm_pins=warm_pins, warm_gets=warm_gets, cold_pins=cold_pins, cold_gets=cold_gets)
 

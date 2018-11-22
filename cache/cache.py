@@ -82,7 +82,7 @@ class Cache(object):
             entry.close()
         # TODO: do something if full
 
-    def get_and_pin(self, key):
+    def get(self, key):
         """
         Requests key from the cache. If it does not exist, request the data
         from the backing store. Pins the cache entry as well.
@@ -100,26 +100,6 @@ class Cache(object):
 
         entry.ref_cnt += 1
         return entry.file_path
-
-    def get(self, key):
-        """
-        Requests key from the cache. If it does not exist, request the data
-        from the backing store. Does not pin the cache entry.
-        :param key: data key
-        :return: str path to shared data
-        """
-        if key in self.cache:
-            entry = self.cache.pop(key)
-            self.cache[key] = entry
-        else:
-            entry = Entry(key, True)
-            self.storage.load(key, entry)
-            self.evict_if_full()
-            self.cache[key] = entry
-
-        data = entry.data.read(entry.data.size())
-        entry.data.seek(0)
-        return data
 
     def put(self, key):
         """
@@ -146,52 +126,15 @@ class Storage(object):
     """
 
     def __init__(self, s3_bucket):
-        # if config['storage_backend'] == 's3':
-        #     self.s3_bucket = config['backend_config']['bucket']
-        #     self.s3client = boto3.client('s3')
-        #     # self.session = botocore.session.get_session()
-        #     # self.s3client = self.session.create_client(
-        #     #     's3', config=botocore.client.Config(max_pool_connections=200))
-        # else:
-        #     raise NotImplementedError(("Using {} as storage backend is" +
-        #                                "not supported yet").format(config['storage_backend']))
         self.s3_bucket = s3_bucket
         self.s3client = boto3.client('s3')
 
     def load(self, key, cache_entry):
+        # TODO: move this to entry 
+        # TODO: use ftruncate instead
         with open(cache_entry.file_path, 'wb+') as f:
             self.s3client.download_fileobj(self.s3_bucket, key, f)
             cache_entry.memmap()
 
     def store(self, key, cache_entry):
         self.s3client.upload_fileobj(cache_entry.data, self.s3_bucket, key)
-
-# if __name__ == "__main__":
-#     import pywren
-#     import pywren.wrenconfig as wrenconfig
-#     import time
-#     import numpy as np
-
-#     storage_config = wrenconfig.extract_storage_config(wrenconfig.default())
-#     cache = Cache(storage_config)
-#     key_pre = "test{}"
-#     for i in range(10):
-#         key = key_pre.format(i)
-#         randarr = np.full((4096, 4096), i, dtype='float64')
-#         arr = np.memmap("/tmp/" + key, dtype='float64', mode='w+', shape=(4096,4096))
-#         arr[:] = randarr[:]
-#         start_time = time.time()
-#         cache.put(key)
-#         print("put: {}".format(time.time() - start_time))
-
-#     for key, value in cache.cache.items():
-#         print("cache entry: {}".format(key))
-
-#     for i in range(10):
-#         key = key_pre.format(i)
-#         start_time = time.time()
-#         cache.get(key)
-#         print("{} get: ".format(time.time() - start_time))
-#         arr = np.memmap("/tmp/" + key, dtype='float64', mode='r', shape=(4096,4096))
-#         print(arr)
-#         cache.release(key)
