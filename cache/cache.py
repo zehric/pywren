@@ -28,16 +28,13 @@ TEMP_DIR = tempfile.gettempdir()
 
 class Entry(object):
 
-    def __init__(self, key, no_mmap=False):
+    def __init__(self, key, storage=None):
         self.ref_cnt = 0
         self.dirty = False
         self.file_path = os.path.join(TEMP_DIR, key)
-        self.fd = os.open(self.file_path, os.O_RDWR | os.O_CREAT)
-        self.data = None
-        if not no_mmap:
-            self.memmap()
-
-    def memmap(self):
+        if storage:
+            storage.load(key, self)
+        self.fd = os.open(self.file_path, os.O_RDWR)
         self.data = mmap.mmap(self.fd, 0)
 
     def close(self):
@@ -93,8 +90,7 @@ class Cache(object):
             entry = self.cache.pop(key)
             self.cache[key] = entry
         else:
-            entry = Entry(key, True)
-            self.storage.load(key, entry)
+            entry = Entry(key, storage=self.storage)
             self.evict_if_full()
             self.cache[key] = entry
 
@@ -130,11 +126,7 @@ class Storage(object):
         self.s3client = boto3.client('s3')
 
     def load(self, key, cache_entry):
-        # TODO: move this to entry 
-        # TODO: use ftruncate instead
-        with open(cache_entry.file_path, 'wb+') as f:
-            self.s3client.download_fileobj(self.s3_bucket, key, f)
-            cache_entry.memmap()
+        self.s3client.download_file(self.s3_bucket, key, cache_entry.file_path)
 
     def store(self, key, cache_entry):
         self.s3client.upload_fileobj(cache_entry.data, self.s3_bucket, key)

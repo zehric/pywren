@@ -12,17 +12,16 @@ CPU_COUNT = mp.cpu_count()
 class FastIO(object):
     ''' A fairly low level api to read/write from S3 using the python ctypes API '''
 
-    def __init__(self, so_bucket="numpywrenpublic", prefix=""):
+    def __init__(self, so_bucket="numpywrenpublic"):
         self.so_bucket = so_bucket
         self.so_key = "fastio"
-        self.sos_prefix = prefix
         self.__so_cached = None
         self.__api_started = False
 
     @property
     def so(self):
         if (self.__so_cached) == None:
-            return load_shared_lib.load_shared_lib(self.so_key, self.so_bucket, worker_id=self.sos_prefix)
+            return load_shared_lib.load_shared_lib(self.so_key, self.so_bucket)
         else:
             return self.__so_cached
 
