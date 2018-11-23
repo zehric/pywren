@@ -28,6 +28,13 @@ runcmd:
   - [ sudo, -Hu, ec2-user, sh, -c, "git -C /home/ec2-user/pywren fetch origin refs/pull/*/merge:refs/remotes/origin/pr/*"]
   - [ sudo, -Hu, ec2-user, sh, -c, "git -C /home/ec2-user/pywren checkout {git_checkout_string}"]
   - [ sudo, -Hu, ec2-user, sh, -c, "/home/ec2-user/anaconda/bin/pip install -e /home/ec2-user/pywren"]
+  - mkdir /tmp/sos
+  - aws s3 cp s3://zehric-pywren-149/libaws-cpp-sdk-core.so /tmp/sos/libaws-cpp-sdk-core.so
+  - aws s3 cp s3://zehric-pywren-149/libaws-cpp-sdk-s3.so /tmp/sos/libaws-cpp-sdk-s3.so
+  - aws s3 cp s3://zehric-pywren-149/libaws-c-event-stream.so /tmp/sos/libaws-c-event-stream.so
+  - aws s3 cp s3://zehric-pywren-149/libaws-c-common.so.0unstable /tmp/sos/libaws-c-common.so.0unstable
+  - aws s3 cp s3://zehric-pywren-149/libaws-checksums.so /tmp/sos/libaws-checksums.so
+  - sudo chmod 777 /tmp/sos/*
   - [ ls, /etc/init.d/]
   - mkdir /var/run/supervisor
   - chown ec2-user /var/run/supervisor
