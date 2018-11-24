@@ -50,7 +50,7 @@ def create_instance_profile(instance_profile_name):
 
 def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
                      instance_name, instance_profile_name, sqs_queue_name,
-                     s3_bucket,
+                     s3_bucket, cache_size=100,
                      default_volume_size=100,
                      max_idle_time=60, idle_terminate_granularity=600,
                      pywren_git_branch='master',
@@ -96,7 +96,8 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
         aws_region=aws_region,
         max_idle_time=max_idle_time,
         idle_terminate_granularity=idle_terminate_granularity,
-        num_procs=parallelism)
+        num_procs=parallelism,
+        cache_size=cache_size)
     supervisord_conf_64 = b64s(supervisord_conf)
 
     cloud_agent_conf = open(sd("cloudwatch-agent.config"),

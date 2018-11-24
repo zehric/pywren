@@ -9,7 +9,7 @@ import hashlib
 import time
 import math
 import pywren
-from fastio import FastIO
+from fastclient import FastClient
 
 parser = argparse.ArgumentParser(description="S3 IO benchmarks")
 parser.add_argument('data_size', type=float)
@@ -22,34 +22,34 @@ NUM_KEYS = args.num_keys
 OUTPUT_NAME = "e{}_{}".format(int(math.log10(DATA_SIZE)), NUM_KEYS)
 bucket = "uric-cache-benchmarks"
 
-def write_keys(prefix, size=DATA_SIZE, num_keys=10):
-    client = boto3.client('s3')
-    fio = FastIO(so_bucket="zehric-pywren-149", prefix=prefix)
-    fio.cache_so()
-    fio.start_api()
-    mat_in = np.random.randint(0, 256, int(size)).astype('uint8')
+def read_keys_pin(prefix, size=DATA_SIZE, num_keys=10):
+    fclient = FastClient(so_bucket="zehric-pywren-149")
+    fclient.cache_so()
     t = time.time()
-    ptrs_in = []
-    ptrs_out = []
-    buckets = []
-    keys = []
-    buffer_sizes = []
-    start = time.time()
-    for i in range(num_keys):
-        mat_ptr_in = mat_in
-        # mat_ptr_out =  mat_out[i*obj_size:(i+1)*obj_size]
-        ptr_in = ctypes.c_void_p(mat_ptr_in.ctypes.data)
-        ptrs_in.append(ptr_in)
-        # ptr_out = ctypes.c_void_p(mat_ptr_out.ctypes.data)
-        # ptrs_out.append(ptr_out)
-        key = "s3iops/{0}_{1}_{2}".format(prefix, i, os.urandom(256))
-        sha1 = hashlib.sha1()
-        sha1.update(key.encode())
-        key = sha1.hexdigest()
-        buckets.append(ctypes.c_char_p(bucket.encode()))
-        keys.append(ctypes.c_char_p(key.encode()))
-        buffer_sizes.append(ctypes.c_long(mat_ptr_in.nbytes))
-    fio.put_objects(ptrs_in, buffer_sizes, buckets, keys, threads=num_keys)
+    # TODO: make this multithreaded so it can compete with the normal benchmarks
+
+    fclient.run_benchmark_pins(num_keys)
+
+    e = time.time()
+    return t,e,num_keys
+
+def read_keys_get(prefix, size=DATA_SIZE, num_keys=10):
+    fclient = FastClient(so_bucket="zehric-pywren-149")
+    fclient.cache_so()
+    t = time.time()
+    
+    fclient.run_benchmark_gets(num_keys)
+
+    e = time.time()
+    return t,e,num_keys
+
+def write_keys(prefix, size=DATA_SIZE, num_keys=10):
+    fclient = FastClient(so_bucket="zehric-pywren-149")
+    fclient.cache_so()
+    t = time.time()
+    
+    fclient.run_benchmark_puts(num_keys, int(size))
+
     e = time.time()
     return t,e,num_keys
 
@@ -67,9 +67,10 @@ def profile_iops(results):
         iops[start_bin:((end_bin)+1)]  += num_ops/(end_time - start_time)
     return iops, bins
 
-
-# w = write_keys("poop", num_keys=1000)
+# w = read_keys_get("poop", num_keys=10)
 # print(w[1] - w[0])
+# r = read_keys_pin("poop", num_keys=100)
+# print(r[1] - r[0])
 # exit()
 
 
@@ -84,7 +85,8 @@ config['runtime']['s3_key'] = key
 
 pwex = pywren.standalone_executor(config=config)
 
-futures = pwex.map(lambda x: write_keys(x, num_keys=NUM_KEYS), range(25*36), extra_env=extra_env)
+print("mapping {} keys of size {}".format(NUM_KEYS, DATA_SIZE))
+futures = pwex.map(lambda x: read_keys_pin(x, size=DATA_SIZE, num_keys=NUM_KEYS), range(25*36), extra_env=extra_env)
 
 pywren.wait(futures)
 
@@ -103,9 +105,9 @@ if len(results) == 0:
 print(results[0][1] - results[0][0])
 iops, bins = profile_iops(results)
 
-np.savez("s3iops_cpp_write_{}".format(OUTPUT_NAME), iops=iops, bins=bins)
+np.savez("s3iops_cache_read_{}".format(OUTPUT_NAME), iops=iops, bins=bins)
 
 plt.plot(bins - min(bins), iops)
-plt.ylabel("(write) IOPS/s")
+plt.ylabel("(read) IOPS/s")
 plt.xlabel("time")
-plt.savefig('s3iops_cpp_write_{}.png'.format(OUTPUT_NAME))
+plt.savefig('s3iops_cache_read_{}.png'.format(OUTPUT_NAME))

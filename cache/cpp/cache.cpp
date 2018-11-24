@@ -1,13 +1,3 @@
-/*
-Copyright 2018 Vaishaal Shankar
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
-
 #include <aws/core/Aws.h>
 #include <aws/core/Region.h>
 #include <aws/s3/S3Client.h>
@@ -18,7 +8,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <string>
 #include "bufferstream.hpp"
 #include <time.h>
-#include "threadpool.h"
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -30,19 +19,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <mutex>
 #include <condition_variable>
 #include <utility>
-#include <tuple>
+#include <unistd.h>
+#include <pthread.h>
+#include <zmq.hpp>
 
-#include <stdlib.h>
-
-#define ALLOCATION_TAG "NUMPYWREN_FASTIO"
-extern "C" {
-   int put_object(void* buffer, long buffer_size, const char* bucket, const char* key);
-   int get_object(void* buffer, long buffer_size, const char* bucket, const char* key);
-   int put_objects(void**obj_buffers, long num_objects, long* buffer_sizes, const char** buckets, const char** keys, int num_threads);
-   int get_objects(void**obj_buffers, long num_objects, long* buffer_sizes, const char** buckets, const char** keys, int num_threads);
-   void start_api();
-   void stop_api();
-}
+#define ALLOCATION_TAG "CACHE"
+int get_object(void* buffer, long buffer_size, const char* bucket, const char* key);
+int put_object(void* buffer, long buffer_size, const char* bucket, const char* key);
 
 static char *bucket;
 static long objsizebytes;
@@ -76,7 +59,7 @@ CacheEntry::CacheEntry(std::string k, std::list<std::string>::iterator pos) {
 
 CacheEntry::~CacheEntry() {
     if (dirty) {
-        std::cerr << "upload to s3: " << file_path << "\n";
+        /* std::cerr << "upload to s3: " << file_path << "\n"; */
         put_object(data, size, bucket, key.c_str());
     }
     munmap(data, size);
@@ -89,7 +72,7 @@ void CacheEntry::download(long _size) {
     memmap(_size);
     // TODO: download from s3();
     get_object(data, size, bucket, key.c_str());
-    std::cerr << "download from s3: " << file_path << "\n";
+    /* std::cerr << "download from s3: " << file_path << "\n"; */
 }
 
 void CacheEntry::memmap(long _size) {
@@ -133,7 +116,7 @@ void Cache::get(std::string key) {
         while (entry->loading) {
             entry->cv.wait(lock);
         }
-        std::cerr << "hit!\n";
+        /* std::cerr << "hit!\n"; */
     } else {
         keys.push_back(key);
         auto it = keys.end();
@@ -245,35 +228,6 @@ int _get_object_internal(Aws::S3::S3Client &client, char* &buffer, long buffer_s
     }
 }
 
-int put_objects(void**obj_buffers, long num_objects, long* buffer_sizes, const char** buckets, const char** keys, int num_threads) {
-    ThreadPool threadpool(num_threads);
-    std::vector<std::future<int>> put_futures;
-    for (int i = 0; i < num_objects; i++) {
-        char* buffer_to_use = (char*) obj_buffers[i];
-        auto future = threadpool.enqueue(put_object, buffer_to_use, buffer_sizes[i], buckets[i], keys[i]);
-        put_futures.push_back(std::move(future));
-    }
-
-    for (int i = 0; i < num_objects; i++) {
-        auto res = put_futures[i].get();
-    }
-
-}
-
-int get_objects(void**obj_buffers, long num_objects, long* buffer_sizes, const char** buckets, const char** keys, int num_threads) {
-    ThreadPool threadpool(num_threads);
-    std::vector<std::future<int>> get_futures;
-    for (int i = 0; i < num_objects; i++) {
-        char* buffer_to_use = (char*) obj_buffers[i];
-        auto future = threadpool.enqueue(get_object, buffer_to_use, buffer_sizes[i], buckets[i], keys[i]);
-        get_futures.push_back(std::move(future));
-    }
-
-    for (int i = 0; i < num_objects; i++) {
-        auto res = get_futures[i].get();
-    }
-}
-
 int put_object(void* buffer, long buffer_size, const char* bucket, const char* key) {
     auto region = Aws::Region::US_WEST_2;
     Aws::Client::ClientConfiguration cfg;
@@ -304,13 +258,50 @@ void stop_api() {
     Aws::ShutdownAPI(options);
 }
 
-int test_cache_threadfunc(Cache *cache, std::string tid) {
-    for (int i = 0; i < 5; i++) {
-        int r = rand() % 5;
-        cache->get(std::to_string(r));
-        cache->release(std::to_string(r));
+/* int test_cache_threadfunc(Cache *cache, std::string tid) { */
+/*     for (int i = 0; i < 5; i++) { */
+/*         int r = rand() % 5; */
+/*         cache->get(std::to_string(r)); */
+/*         cache->release(std::to_string(r)); */
+/*     } */
+/*     return 0; */
+/* } */
+static Cache *cache;
+
+void *worker_func (void *arg) {
+    zmq::context_t *context = (zmq::context_t *) arg;
+
+    zmq::socket_t socket(*context, ZMQ_REP);
+    socket.connect("inproc://workers");
+
+    while (true) {
+        //  Wait for next request from client
+        zmq::message_t request;
+        socket.recv(&request);
+
+        char *data = (char *) request.data();
+        char op = data[0];
+        std::string key = std::string(data + 1);
+        /* std::cerr << "received key " << key << std::endl; */
+        switch (op) {
+            case 0:
+                cache->get(key);
+                break;
+            case 1:
+                cache->release(key);
+                break;
+            case 2:
+                cache->put(key);
+                break;
+        }
+
+        //  Send reply back to client
+        //  TODO: send back a string indicating the location of the file
+        zmq::message_t reply(8);
+        memcpy((void *) reply.data (), "success", 8);
+        socket.send(reply);
     }
-    return 0;
+    return (NULL);
 }
 
 int main(int argc, char** argv)
@@ -320,45 +311,59 @@ int main(int argc, char** argv)
         std::cout << std::endl <<
             "This benchmark will upload data to s3 and then download it "
             << std::endl << "" << std::endl << std::endl <<
-            "Ex: cache <objsizebytes> <num_threads> <bucketname> <prefix> <cache_size>\n" << std::endl;
+            "Ex: cache <objsizebytes> <num_threads> <bucketname> <cache_size>\n" << std::endl;
         exit(1);
     }
 
     Aws::SDKOptions options;
     Aws::InitAPI(options);
     {
-        objsizebytes = std::stol(argv[1]);
+        objsizebytes = std::stol(argv[1]); // FIXME: this is a hack
         auto num_threads = std::stol(argv[2]);
         bucket = argv[3];
-        auto prefix = std::string(argv[4]);
-        auto cache_size = std::stoi(argv[5]);
+        auto cache_size = std::stoi(argv[4]);
 
         std::cout << "Object Size " << argv[1] << std::endl;
         std::cout << "num_threads " << argv[2] << std::endl;
-        std::cout << "buffersize " << objsizebytes*num_threads << std::endl;
+        std::cout << "bucket " << argv[3] << std::endl;
+        std::cout << "cache size " << argv[4] << std::endl;
 
-        Cache *cache = new Cache(cache_size);
-        for (int i = 0; i < 5; i++) {
-            std::string path = "/tmp/" + std::to_string(i);
-            int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
-            ftruncate(fd, objsizebytes);
-            close(fd);
-            cache->put(std::to_string(i));
-        }
-        cache->get(std::to_string(2));
-        cache->get(std::to_string(3));
+        /* for (int i = 0; i < 5; i++) { */
+        /*     std::string path = "/tmp/" + std::to_string(i); */
+        /*     int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666); */
+        /*     ftruncate(fd, objsizebytes); */
+        /*     close(fd); */
+        /*     cache->put(std::to_string(i)); */
+        /* } */
+        /* cache->get(std::to_string(2)); */
+        /* cache->get(std::to_string(3)); */
 
-        ThreadPool pool(num_threads);
-        
-        std::vector<std::future<int>> get_futures;
-        for (int i = 0; i < num_threads; i++) {
-            auto future = pool.enqueue(test_cache_threadfunc, cache, std::to_string(i));
-            get_futures.push_back(std::move(future));
-        }
+        cache = new Cache(cache_size);
 
-        for (int i = 0; i < num_threads; i++) {
-            auto res = get_futures[i].get();
+        // Prepare our context and sockets
+        zmq::context_t context(1);
+        zmq::socket_t clients(context, ZMQ_ROUTER);
+        clients.bind("ipc:///tmp/local_cache");
+        zmq::socket_t workers(context, ZMQ_DEALER);
+        workers.bind("inproc://workers");
+
+        //  Launch pool of worker threads
+        for (int thread_nbr = 0; thread_nbr < num_threads; thread_nbr++) {
+            pthread_t worker;
+            pthread_create (&worker, NULL, worker_func, (void *) &context);
         }
+        //  Connect work threads to client threads via a queue
+        zmq::proxy (clients, workers, NULL);
+
+        /* std::vector<std::future<int>> get_futures; */
+        /* for (int i = 0; i < num_threads; i++) { */
+        /*     auto future = pool.enqueue(cache_threadfunc, cache; */
+        /*     get_futures.push_back(std::move(future)); */
+        /* } */
+
+        /* for (int i = 0; i < num_threads; i++) { */
+        /*     auto res = get_futures[i].get(); */
+        /* } */
 
         delete cache;
     }

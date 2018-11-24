@@ -524,10 +524,12 @@ def log_url(ctx):
         help='use spot instances, at this reserve price')
 @click.option('--instance_type', default=None, type=str,
         help='launch this instance type')
+@click.option('--cache_size', default=100, type=int,
+        help='start the cache with this size')
 def standalone_launch_instances(ctx, number, max_idle_time, parallelism,
         idle_terminate_granularity,
         pywren_git_branch, pywren_git_commit,
-        spot_price, instance_type):
+        spot_price, instance_type, cache_size):
     config_filename = ctx.obj['config_filename']
     config = pywren.wrenconfig.load(config_filename)
 
@@ -553,6 +555,7 @@ def standalone_launch_instances(ctx, number, max_idle_time, parallelism,
                                                sc['instance_profile_name'],
                                                sc['sqs_queue_name'],
                                                config['s3']['bucket'],
+                                               cache_size=cache_size,
                                                max_idle_time=sc['max_idle_time'],
                                                idle_terminate_granularity=\
                                                sc['idle_terminate_granularity'],

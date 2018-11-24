@@ -12,7 +12,7 @@ else:
 
 def load_shared_lib(key="fastio", bucket="zehric-pywren-149"):
     key += END
-    local_path = '/tmp/sos' + key
+    local_path = '/tmp/' + key
     s3 = boto3.resource('s3')
     s3.Bucket(bucket).download_file(key, local_path)
     return ctypes.cdll.LoadLibrary(local_path)

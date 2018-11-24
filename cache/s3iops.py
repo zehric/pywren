@@ -139,9 +139,9 @@ def profile_iops(results):
     return iops, bins
 
 
-# w = write_keys_threaded("poop", num_keys=100, threads=100)
+# w = write_keys_threaded("poop", num_keys=10, threads=10)
 # print(w[1] - w[0])
-# r = write_keys_async("poop", num_keys=100)
+# r = write_keys_async("poop", num_keys=10)
 # print(r[1] - r[0])
 # exit()
 
