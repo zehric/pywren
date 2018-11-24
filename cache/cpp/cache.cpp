@@ -44,36 +44,40 @@ extern "C" {
    void stop_api();
 }
 
+static char *bucket;
+static long objsizebytes;
+
 class CacheEntry {
 public:
+    std::string key;
     std::string file_path;
     int fd;
     int ref_cnt;
     bool dirty;
-    int size;
+    long size;
     bool loading;
     void *data;
     std::condition_variable cv;
     std::list<std::string>::iterator position;
     CacheEntry(std::string, std::list<std::string>::iterator pos); // constructor
     ~CacheEntry();      // destructor
-    void download();
-    void memmap();
+    void download(long);
+    void memmap(long);
 };
 
-CacheEntry::CacheEntry(std::string path, std::list<std::string>::iterator pos) {
+CacheEntry::CacheEntry(std::string k, std::list<std::string>::iterator pos) {
     ref_cnt = 0;
     dirty = false;
-    file_path = path;
+    key = k;
+    file_path = "/tmp/" + k;
     position = pos;
     loading = false;
 }
 
 CacheEntry::~CacheEntry() {
-    /* std::cerr << "evict " << file_path << "\n"; */
     if (dirty) {
         std::cerr << "upload to s3: " << file_path << "\n";
-        // upload();
+        put_object(data, size, bucket, key.c_str());
     }
     munmap(data, size);
     ftruncate(fd, 0);
@@ -81,20 +85,24 @@ CacheEntry::~CacheEntry() {
     remove(file_path.c_str());
 }
 
-void CacheEntry::download() {
+void CacheEntry::download(long _size) {
+    memmap(_size);
     // TODO: download from s3();
+    get_object(data, size, bucket, key.c_str());
     std::cerr << "download from s3: " << file_path << "\n";
-    memmap();
 }
 
-void CacheEntry::memmap() {
-    std::cerr << "mmap: " << file_path.c_str() << "\n";
-    struct stat stat;
-    fd = open(file_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666); // TODO: remove
-    /* fd = open(file_path.c_str(), O_RDWR); */
-    ftruncate(fd, 100); // TODO: remove
-    fstat(fd, &stat);
-    size = stat.st_size;
+void CacheEntry::memmap(long _size) {
+    if (_size != -1) {
+        fd = open(file_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
+        size = _size;
+        ftruncate(fd, size);
+    } else {
+        fd = open(file_path.c_str(), O_RDWR);
+        struct stat stat;
+        fstat(fd, &stat);
+        size = stat.st_size;
+    }
     data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 }
 
@@ -106,37 +114,36 @@ private:
     std::mutex mutex;
     void evict_if_full();
 public:
-    Cache();
+    Cache(int size);
     void get(std::string key);
     void put(std::string key);
     void release(std::string key);
 };
 
-Cache::Cache() {
-    max_size = 1; // TODO: change this
+Cache::Cache(int size) {
+    max_size = size;
 }
 
 void Cache::get(std::string key) {
     std::unique_lock<std::mutex> lock(mutex);
-    std::cerr << "get " << key << "\n";
     CacheEntry *entry;
     if (entries.find(key) != entries.end()) {
-        std::cerr << "found " << key << "\n";
         entry = entries[key];
         entry->ref_cnt += 1;
         while (entry->loading) {
             entry->cv.wait(lock);
         }
+        std::cerr << "hit!\n";
     } else {
         keys.push_back(key);
         auto it = keys.end();
-        entry = new CacheEntry("/tmp/" + key, --it);
+        entry = new CacheEntry(key, --it);
         entries[key] = entry;
         entry->loading = true;
         entry->ref_cnt += 1;
         lock.unlock();
         evict_if_full();
-        entry->download();
+        entry->download(objsizebytes);
         lock.lock();
         entry->loading = false;
         entry->cv.notify_all();
@@ -145,7 +152,6 @@ void Cache::get(std::string key) {
 
 void Cache::release(std::string key) {
     std::unique_lock<std::mutex> lock(mutex);
-    std::cerr << "release " << key << "\n";
     CacheEntry *entry = entries[key];
     entry->ref_cnt -= 1;
 
@@ -157,9 +163,11 @@ void Cache::release(std::string key) {
     evict_if_full();
 }
 
+/* FIXME: The cache currently cannot handle simultaneous gets and puts to
+ * the same key. This is fine for numpywren but should be changed for general
+ * purpose usage. */
 void Cache::put(std::string key) {
     std::unique_lock<std::mutex> lock(mutex);
-    std::cerr << "put " << key << "\n";
     CacheEntry *entry;
     if (entries.find(key) != entries.end()) {
         entry = entries[key];
@@ -171,8 +179,8 @@ void Cache::put(std::string key) {
     } else {
         keys.push_back(key);
         auto it = keys.end();
-        entry = new CacheEntry("/tmp/" + key, --it);
-        entry->memmap();
+        entry = new CacheEntry(key, --it);
+        entry->memmap(-1);
         entries[key] = entry;
         entry->dirty = true;
         lock.unlock();
@@ -186,7 +194,6 @@ void Cache::evict_if_full() {
         for (auto &key : keys) {
             CacheEntry *entry = entries[key];
             if (entry->ref_cnt < 1) {
-                std::cerr << "evict " << key << "\n";
                 entries.erase(key);
                 keys.erase(entry->position);
                 lock.unlock();
@@ -301,7 +308,6 @@ int test_cache_threadfunc(Cache *cache, std::string tid) {
     for (int i = 0; i < 5; i++) {
         int r = rand() % 5;
         cache->get(std::to_string(r));
-        cache->put(std::to_string(r));
         cache->release(std::to_string(r));
     }
     return 0;
@@ -314,32 +320,43 @@ int main(int argc, char** argv)
         std::cout << std::endl <<
             "This benchmark will upload data to s3 and then download it "
             << std::endl << "" << std::endl << std::endl <<
-            "Ex: fastio <objsizebytes> <num_objects> <bucketname> <prefix>\n" << std::endl;
+            "Ex: cache <objsizebytes> <num_threads> <bucketname> <prefix> <cache_size>\n" << std::endl;
         exit(1);
     }
 
     Aws::SDKOptions options;
     Aws::InitAPI(options);
     {
-        auto objsizebytes = std::stol(argv[1]);
-        auto num_objects = std::stol(argv[2]);
-        auto bucket = std::string(argv[3]);
+        objsizebytes = std::stol(argv[1]);
+        auto num_threads = std::stol(argv[2]);
+        bucket = argv[3];
         auto prefix = std::string(argv[4]);
+        auto cache_size = std::stoi(argv[5]);
 
         std::cout << "Object Size " << argv[1] << std::endl;
-        std::cout << "num_objects " << argv[2] << std::endl;
-        std::cout << "buffersize " << objsizebytes*num_objects << std::endl;
+        std::cout << "num_threads " << argv[2] << std::endl;
+        std::cout << "buffersize " << objsizebytes*num_threads << std::endl;
 
-        ThreadPool pool(num_objects);
-        Cache *cache = new Cache();
+        Cache *cache = new Cache(cache_size);
+        for (int i = 0; i < 5; i++) {
+            std::string path = "/tmp/" + std::to_string(i);
+            int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
+            ftruncate(fd, objsizebytes);
+            close(fd);
+            cache->put(std::to_string(i));
+        }
+        cache->get(std::to_string(2));
+        cache->get(std::to_string(3));
+
+        ThreadPool pool(num_threads);
         
         std::vector<std::future<int>> get_futures;
-        for (int i = 0; i < num_objects; i++) {
+        for (int i = 0; i < num_threads; i++) {
             auto future = pool.enqueue(test_cache_threadfunc, cache, std::to_string(i));
             get_futures.push_back(std::move(future));
         }
 
-        for (int i = 0; i < num_objects; i++) {
+        for (int i = 0; i < num_threads; i++) {
             auto res = get_futures[i].get();
         }
 

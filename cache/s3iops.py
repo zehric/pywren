@@ -5,6 +5,7 @@ import boto3
 import io
 import os
 import hashlib
+import botocore.session
 import aiobotocore
 import asyncio
 import time
@@ -144,7 +145,9 @@ def profile_iops(results):
 # print(r[1] - r[0])
 # exit()
 
-extra_env = {"AWS_DEFAULT_REGION": "us-west-2", "AWS_ACCESS_KEY_ID": "AKIAJXZKSAH54H32S5GQ", "AWS_SECRET_ACCESS_KEY": "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"}
+session = botocore.session.get_session()
+
+extra_env = {"AWS_DEFAULT_REGION": "us-west-2", "AWS_ACCESS_KEY_ID": session.get_credentials().access_key, "AWS_SECRET_ACCESS_KEY": session.get_credentials().secret_key}
 
 config = pywren.wrenconfig.default()
 config['runtime']['s3_bucket'] = 'numpywrenpublic'

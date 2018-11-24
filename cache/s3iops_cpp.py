@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import ctypes
 import argparse
+import botocore.session
 import boto3
 import os
 import hashlib
@@ -71,7 +72,9 @@ def profile_iops(results):
 # print(w[1] - w[0])
 # exit()
 
-extra_env = {"AWS_DEFAULT_REGION": "us-west-2", "AWS_ACCESS_KEY_ID": "AKIAJXZKSAH54H32S5GQ", "AWS_SECRET_ACCESS_KEY": "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"}
+session = botocore.session.get_session()
+
+extra_env = {"AWS_DEFAULT_REGION": "us-west-2", "AWS_ACCESS_KEY_ID": session.get_credentials().access_key, "AWS_SECRET_ACCESS_KEY": session.get_credentials().secret_key}
 
 config = pywren.wrenconfig.default()
 config['runtime']['s3_bucket'] = 'numpywrenpublic'
