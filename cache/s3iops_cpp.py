@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import botocore
 import ctypes
 import argparse
 import boto3
@@ -27,6 +28,8 @@ def write_keys(prefix, size=DATA_SIZE, num_keys=10):
     fio.cache_so()
     fio.start_api()
     mat_in = np.random.randint(0, 256, int(size)).astype('uint8')
+    doubles_s = np.zeros(num_keys, np.float64)
+    doubles_f = np.zeros(num_keys, np.float64)
     t = time.time()
     ptrs_in = []
     ptrs_out = []
@@ -48,30 +51,40 @@ def write_keys(prefix, size=DATA_SIZE, num_keys=10):
         buckets.append(ctypes.c_char_p(bucket.encode()))
         keys.append(ctypes.c_char_p(key.encode()))
         buffer_sizes.append(ctypes.c_long(mat_ptr_in.nbytes))
-    fio.put_objects(ptrs_in, buffer_sizes, buckets, keys, threads=num_keys)
+    d_ptr_s = doubles_s.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+    d_ptr_f = doubles_f.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+    fio.put_objects(ptrs_in, buffer_sizes, buckets, keys, d_ptr_s, d_ptr_f, threads=-1)
     e = time.time()
-    return t,e,num_keys
+    return list(zip(doubles_s, doubles_f))
 
 def profile_iops(results):
+    results = [x for y in results for x in y]
+    print(len(results))
     min_time = min(results, key=lambda x: x[0])[0]
     max_time = max(results, key=lambda x: x[1])[1]
     tot_time = (max_time - min_time)
+    print(max_time)
+    print(min_time)
 
-    bins = np.linspace(min_time, max_time, max_time - min_time)
+    bins = np.linspace(min_time, max_time, (max_time - min_time) * 10)
+    # bins = np.linspace(min_time, max_time, (max_time - min_time))
     #return bins, min_time, max_time
     iops = np.zeros(len(bins))
 
-    for start_time, end_time, num_ops in results:
-        start_bin, end_bin = np.searchsorted(bins, [int(start_time), int(end_time)])
-        iops[start_bin:((end_bin)+1)]  += num_ops/(end_time - start_time)
+    for start_time, end_time in results:
+        start_bin, end_bin = np.searchsorted(bins, [round(start_time, 1), round(end_time, 1)])
+        # start_bin, end_bin = np.searchsorted(bins, [int(start_time), int(end_time)])
+        iops[start_bin:(end_bin+1)] += (1 / (end_time - start_time))
     return iops, bins
 
 
-# w = write_keys("poop", num_keys=1000)
-# print(w[1] - w[0])
+# w = write_keys("poop", num_keys=100)
+# print(w)
 # exit()
 
-extra_env = {"AWS_DEFAULT_REGION": "us-west-2", "AWS_ACCESS_KEY_ID": "AKIAJXZKSAH54H32S5GQ", "AWS_SECRET_ACCESS_KEY": "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"}
+session = botocore.session.get_session()
+extra_env = {"AWS_DEFAULT_REGION": "us-west-2", "AWS_ACCESS_KEY_ID": session.get_credentials().access_key, "AWS_SECRET_ACCESS_KEY": session.get_credentials().secret_key}
+
 
 config = pywren.wrenconfig.default()
 config['runtime']['s3_bucket'] = 'numpywrenpublic'
@@ -80,7 +93,7 @@ config['runtime']['s3_key'] = key
 
 pwex = pywren.standalone_executor(config=config)
 
-futures = pwex.map(lambda x: write_keys(x, num_keys=NUM_KEYS), range(25*36), extra_env=extra_env)
+futures = pwex.map(lambda x: write_keys(x, num_keys=NUM_KEYS), range(36*25), extra_env=extra_env)
 
 pywren.wait(futures)
 
@@ -96,7 +109,6 @@ for i,f in enumerate(futures):
 print(len(results))
 if len(results) == 0:
     exit()
-print(results[0][1] - results[0][0])
 iops, bins = profile_iops(results)
 
 np.savez("s3iops_cpp_write_{}".format(OUTPUT_NAME), iops=iops, bins=bins)

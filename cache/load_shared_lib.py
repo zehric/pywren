@@ -16,8 +16,9 @@ def load_shared_lib(key="fastio", bucket="zehric-pywren-149", worker_id=0):
     if not os.path.exists(path):
         os.mkdir(path)
     local_path = path + key
-    s3 = boto3.resource('s3')
-    s3.Bucket(bucket).download_file(key, local_path)
+    if not os.path.exists(local_path):
+        s3 = boto3.resource('s3')
+        s3.Bucket(bucket).download_file(key, local_path)
     # sos = ['libaws-cpp-sdk-core.so', 'libaws-cpp-sdk-s3.so', 'libaws-c-event-stream.so',
     #        'libaws-c-common.so.0unstable']
     # for so in sos:
