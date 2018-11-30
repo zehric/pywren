@@ -12,15 +12,16 @@ import pywren
 from fastio import FastIO
 
 parser = argparse.ArgumentParser(description="S3 IO benchmarks")
-parser.add_argument('data_size', type=float)
+parser.add_argument('data_size', type=str)
 parser.add_argument('num_keys', type=int)
 
 # DATA_SIZE = 134217728
+BUCKET = "s3iops-benchmarks"
 args = parser.parse_args()
-DATA_SIZE = args.data_size
+DATA_SIZE = float(args.data_size)
 NUM_KEYS = args.num_keys
-OUTPUT_NAME = "e{}_{}".format(int(math.log10(DATA_SIZE)), NUM_KEYS)
-bucket = "uric-cache-benchmarks"
+OUTPUT_NAME = "{}_{}".format(args.data_size, NUM_KEYS)
+bucket = "s3iops-benchmarks"
 
 def write_keys(prefix, size=DATA_SIZE, num_keys=10):
     client = boto3.client('s3')
@@ -44,7 +45,7 @@ def write_keys(prefix, size=DATA_SIZE, num_keys=10):
         ptrs_in.append(ptr_in)
         # ptr_out = ctypes.c_void_p(mat_ptr_out.ctypes.data)
         # ptrs_out.append(ptr_out)
-        key = "s3iops/{0}_{1}_{2}".format(prefix, i, os.urandom(256))
+        key = "{0}_{1}".format(prefix, i)
         sha1 = hashlib.sha1()
         sha1.update(key.encode())
         key = sha1.hexdigest()
@@ -70,11 +71,15 @@ def profile_iops(results):
     # bins = np.linspace(min_time, max_time, (max_time - min_time))
     #return bins, min_time, max_time
     iops = np.zeros(len(bins))
-
+    fail_cnt = 0
     for start_time, end_time in results:
+        if end_time < 0:
+            print("write failed")
+            fail_cnt += 1
         start_bin, end_bin = np.searchsorted(bins, [round(start_time, 1), round(end_time, 1)])
         # start_bin, end_bin = np.searchsorted(bins, [int(start_time), int(end_time)])
         iops[start_bin:(end_bin+1)] += (1 / (end_time - start_time))
+    print("fail_cnt: {}".format(fail_cnt))
     return iops, bins
 
 

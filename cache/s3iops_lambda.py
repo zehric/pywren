@@ -6,7 +6,6 @@ import io
 import os
 import hashlib
 import aiobotocore
-import botocore
 import asyncio
 import time
 import math
@@ -58,7 +57,7 @@ def get_object(client, key, bucket):
     t = time.time()
     while True:
         try:
-            client.get_object(Key=key, Bucket=BUCKET)['Body'].read()
+            return client.get_object(Key=key, Bucket=BUCKET)['ContentLength']
             e = time.time()
             return (t, e)
         except:
@@ -89,12 +88,14 @@ def read_keys_threaded(prefix, num_keys=10, threads=10):
     futures = []
     for i in range(num_keys):
         key = "{0}_{1}".format(prefix, i)
+        sha1 = hashlib.sha1()
+        sha1.update(key.encode())
         key = sha1.hexdigest()
         futures.append(executor.submit(get_object, client, key, BUCKET))
     fs.wait(futures)
-    times = [f.result() for f in futures]
+    sizes = [f.result() for f in futures]
     e = time.time()
-    return times
+    return sizes
 
 async def put_object_backoff(client, key, bucket, data, backoff_start=1):
     backoff = backoff_start
@@ -159,27 +160,21 @@ def profile_iops(results):
 # print(r[1] - r[0])
 # exit()
 
-session = botocore.session.get_session()
-extra_env = {"AWS_DEFAULT_REGION": "us-west-2", "AWS_ACCESS_KEY_ID": session.get_credentials().access_key, "AWS_SECRET_ACCESS_KEY": session.get_credentials().secret_key}
-
-
 config = pywren.wrenconfig.default()
 config['runtime']['s3_bucket'] = 'numpywrenpublic'
 key = "pywren.runtime/pywren_runtime-3.6-numpywren.tar.gz"
 config['runtime']['s3_key'] = key
 
-pwex = pywren.standalone_executor(config=config)
+pwex = pywren.default_executor(config=config)
 
 if METHOD == "threaded":
-    futures = pwex.map(lambda x: write_keys_threaded(x, num_keys=NUM_KEYS, threads=NUM_KEYS), range(36*25), extra_env=extra_env)
-elif METHOD == "threaded10":
-    futures = pwex.map(lambda x: write_keys_threaded(x, num_keys=NUM_KEYS, threads=10), range(36*25), extra_env=extra_env)
+    futures = pwex.map(lambda x: write_keys_threaded(x, num_keys=NUM_KEYS, threads=NUM_KEYS), range(36*25))
 elif METHOD == "async":
-    futures = pwex.map(lambda x: write_keys_async(x, num_keys=NUM_KEYS), range(36*25), extra_env=extra_env)
+    futures = pwex.map(lambda x: write_keys_async(x, num_keys=NUM_KEYS), range(36*25))
 elif METHOD == "test_t":
-    futures = pwex.map(lambda x: write_keys_threaded(x, num_keys=NUM_KEYS, threads=NUM_KEYS), range(36), extra_env=extra_env)
+    futures = pwex.map(lambda x: write_keys_threaded(x, num_keys=NUM_KEYS, threads=NUM_KEYS), range(36))
 elif METHOD == "test_a":
-    futures = pwex.map(lambda x: write_keys_async(x, num_keys=NUM_KEYS), range(36), extra_env=extra_env)
+    futures = pwex.map(lambda x: write_keys_async(x, num_keys=NUM_KEYS), range(36))
 else:
     print("Input a valid method")
     exit()
@@ -201,9 +196,29 @@ if len(results) == 0:
     exit()
 iops, bins = profile_iops(results)
 
-np.savez("s3iops_pure_python_write_{}".format(OUTPUT_NAME), iops=iops, bins=bins)
+np.savez("s3iops_lambda_python_write_{}".format(OUTPUT_NAME), iops=iops, bins=bins)
 
 plt.plot(bins - min(bins), iops)
-plt.ylabel("(write) IOPS/s")
+plt.ylabel("(write) IOPS")
 plt.xlabel("time")
-plt.savefig('s3iops_pure_python_write_{}.png'.format(OUTPUT_NAME))
+plt.savefig('s3iops_lambda_python_write_{}.png'.format(OUTPUT_NAME))
+
+futures = pwex.map(lambda x: read_keys_threaded(x, num_keys=NUM_KEYS, threads=100), range(36*25))
+pywren.wait(futures)
+results = []
+for i,f in enumerate(futures):
+    try:
+        if (f.done()):
+            results.append(f.result())
+    except Exception as e:
+        print(e)
+        pass
+results = [x for y in results for x in y]
+if len(results) != 36*25*NUM_KEYS:
+    print("{} does not match {}".format(len(results), 36*25*NUM_KEYS))
+    exit()
+for result in results:
+    if result != DATA_SIZE + 2:
+        print("{} does not match size {}".format(result, DATA_SIZE))
+
+print("End")
