@@ -19,7 +19,7 @@ parser.add_argument('num_keys', type=int)
 parser.add_argument('method', type=str)
 
 # DATA_SIZE = 134217728
-BUCKET = "s3iops-benchmarks"
+BUCKET = "uric-cache-benchmarks"
 args = parser.parse_args()
 DATA_SIZE = float(args.data_size)
 NUM_KEYS = args.num_keys
@@ -62,6 +62,7 @@ def get_object(client, key, bucket):
             e = time.time()
             return (t, e)
         except:
+            return (t, -1.0)
             time.sleep(backoff)
             backoff *= 2
 
@@ -105,6 +106,7 @@ async def put_object_backoff(client, key, bucket, data, backoff_start=1):
             e = time.time()
             return (t, e)
         except:
+            return (t, -1.0)
             await asyncio.sleep(backoff)
             backoff *= 2
             
@@ -145,10 +147,14 @@ def profile_iops(results):
     #return bins, min_time, max_time
     iops = np.zeros(len(bins))
 
+    fail_cnt = 0
     for start_time, end_time in results:
+        if end_time < 0:
+            fail_cnt += 1
         start_bin, end_bin = np.searchsorted(bins, [round(start_time, 1), round(end_time, 1)])
         # start_bin, end_bin = np.searchsorted(bins, [int(start_time), int(end_time)])
         iops[start_bin:(end_bin+1)] += (1 / (end_time - start_time))
+    print("fail count: {}".format(fail_cnt))
     return iops, bins
 
 

@@ -49,6 +49,7 @@ def put_object(client, key, data, bucket):
             e = time.time()
             return (t, e)
         except:
+            return (t, -1.0)
             time.sleep(backoff)
             backoff *= 2
 
@@ -146,10 +147,14 @@ def profile_iops(results):
     #return bins, min_time, max_time
     iops = np.zeros(len(bins))
 
+    fail_cnt = 0
     for start_time, end_time in results:
+        if end_time < 0:
+            fail_cnt += 1
         start_bin, end_bin = np.searchsorted(bins, [round(start_time, 1), round(end_time, 1)])
         # start_bin, end_bin = np.searchsorted(bins, [int(start_time), int(end_time)])
         iops[start_bin:(end_bin+1)] += (1 / (end_time - start_time))
+    print("fail_cnt: {}".format(fail_cnt))
     return iops, bins
 
 
@@ -217,8 +222,10 @@ results = [x for y in results for x in y]
 if len(results) != 36*25*NUM_KEYS:
     print("{} does not match {}".format(len(results), 36*25*NUM_KEYS))
     exit()
+fail_cnt = 0
 for result in results:
     if result != DATA_SIZE + 2:
         print("{} does not match size {}".format(result, DATA_SIZE))
+        fail_cnt += 1
 
-print("End")
+print("fail count: {}".format(fail_cnt))

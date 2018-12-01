@@ -16,12 +16,11 @@ parser.add_argument('data_size', type=str)
 parser.add_argument('num_keys', type=int)
 
 # DATA_SIZE = 134217728
-BUCKET = "s3iops-benchmarks"
 args = parser.parse_args()
 DATA_SIZE = float(args.data_size)
 NUM_KEYS = args.num_keys
 OUTPUT_NAME = "{}_{}".format(args.data_size, NUM_KEYS)
-bucket = "s3iops-benchmarks"
+bucket = "uric-cache-benchmarks"
 
 def write_keys(prefix, size=DATA_SIZE, num_keys=10):
     client = boto3.client('s3')
@@ -74,7 +73,6 @@ def profile_iops(results):
     fail_cnt = 0
     for start_time, end_time in results:
         if end_time < 0:
-            print("write failed")
             fail_cnt += 1
         start_bin, end_bin = np.searchsorted(bins, [round(start_time, 1), round(end_time, 1)])
         # start_bin, end_bin = np.searchsorted(bins, [int(start_time), int(end_time)])
