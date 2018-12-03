@@ -71,8 +71,7 @@ class FastIO(object):
         self.so.get_objects.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_long, ctypes.POINTER(ctypes.c_long), ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p), ctypes.c_int]
         self.so.get_objects(c_buffers_array, num_objects, c_buffer_sizes_array, c_buckets_array, c_keys_array, threads)
 
-
-    def put_objects(self, ptrs, buffer_sizes, buckets, keys, start, final, threads=CPU_COUNT):
+    def get_objects_async(self, ptrs, buffer_sizes, buckets, keys, start, final):
         ''' Upload a list of objects from ptrs to s3://bucket
         '''
         assert(self.__api_started)
@@ -88,10 +87,46 @@ class FastIO(object):
         c_keys_array = char_star_star(*keys)
         c_buckets_array = char_star_star(*buckets)
         c_buffer_sizes_array = long_star(*buffer_sizes)
-        # self.so.put_objects.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_long, ctypes.POINTER(ctypes.c_long), ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p), ctypes.c_int, ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_double)]
-        # self.so.put_objects(c_buffers_array, num_objects, c_buffer_sizes_array, c_buckets_array, c_keys_array, threads, start, final)
+        self.so.get_objects_async.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_long, ctypes.POINTER(ctypes.c_long), ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_double)]
+        self.so.get_objects_async(c_buffers_array, num_objects, c_buffer_sizes_array, c_buckets_array, c_keys_array, start, final)
+
+    def put_objects_async(self, ptrs, buffer_sizes, buckets, keys, start, final):
+        ''' Upload a list of objects from ptrs to s3://bucket
+        '''
+        assert(self.__api_started)
+        assert(len(ptrs) == len(buffer_sizes) == len(buckets) == len(keys))
+
+        num_objects = len(ptrs)
+
+        void_star_star  = ctypes.c_void_p * num_objects
+        char_star_star = ctypes.c_char_p * num_objects
+        long_star = ctypes.c_long * num_objects
+
+        c_buffers_array = void_star_star(*ptrs)
+        c_keys_array = char_star_star(*keys)
+        c_buckets_array = char_star_star(*buckets)
+        c_buffer_sizes_array = long_star(*buffer_sizes)
         self.so.put_objects_async.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_long, ctypes.POINTER(ctypes.c_long), ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_double)]
         self.so.put_objects_async(c_buffers_array, num_objects, c_buffer_sizes_array, c_buckets_array, c_keys_array, start, final)
+
+    def put_objects(self, ptrs, buffer_sizes, buckets, keys, threads=CPU_COUNT):
+        ''' Upload a list of objects from ptrs to s3://bucket
+        '''
+        assert(self.__api_started)
+        assert(len(ptrs) == len(buffer_sizes) == len(buckets) == len(keys))
+
+        num_objects = len(ptrs)
+
+        void_star_star  = ctypes.c_void_p * num_objects
+        char_star_star = ctypes.c_char_p * num_objects
+        long_star = ctypes.c_long * num_objects
+
+        c_buffers_array = void_star_star(*ptrs)
+        c_keys_array = char_star_star(*keys)
+        c_buckets_array = char_star_star(*buckets)
+        c_buffer_sizes_array = long_star(*buffer_sizes)
+        self.so.put_objects.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_long, ctypes.POINTER(ctypes.c_long), ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p), ctypes.c_int, ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_double)]
+        self.so.put_objects(c_buffers_array, num_objects, c_buffer_sizes_array, c_buckets_array, c_keys_array, threads, start, final)
 
     def put_object(self, ptr, nbytes, bucket, key):
         ''' Upload an object nbytes long from ptr to s3://bucket/key
