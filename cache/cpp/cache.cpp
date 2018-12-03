@@ -30,6 +30,20 @@ int put_object(void* buffer, long buffer_size, const char* bucket, const char* k
 static char *bucket;
 static long objsizebytes;
 
+static std::string random_string(int size) {
+    std::string str;
+    for (size_t i = 0; i < size; i++) {
+         int randomChar = rand()%(26+26+10);
+         if (randomChar < 26)
+             str.push_back('a' + randomChar);
+         else if (randomChar < 26+26)
+             str.push_back('A' + randomChar - 26);
+         else
+             str.push_back('0' + randomChar - 26 - 26);
+    }
+    return str;
+}
+
 class CacheEntry {
 public:
     std::string key;
@@ -42,18 +56,17 @@ public:
     void *data;
     std::condition_variable cv;
     std::list<std::string>::iterator position;
-    CacheEntry(std::string, std::list<std::string>::iterator pos); // constructor
+    CacheEntry(std::string, std::string path); // constructor
     ~CacheEntry();      // destructor
     void download(long);
     void memmap(long);
 };
 
-CacheEntry::CacheEntry(std::string k, std::list<std::string>::iterator pos) {
+CacheEntry::CacheEntry(std::string k, std::string path) {
     ref_cnt = 0;
     dirty = false;
     key = k;
-    file_path = "/tmp/" + k;
-    position = pos;
+    file_path = path;
     loading = false;
 }
 
@@ -94,20 +107,23 @@ private:
     std::list<std::string> keys;
     std::unordered_map<std::string, CacheEntry *> entries;
     int max_size;
+    int hits;
     std::mutex mutex;
-    void evict_if_full();
+    std::condition_variable evict_cv;
+    void evict_if_full(std::unique_lock<std::mutex>& lock);
 public:
     Cache(int size);
-    void get(std::string key);
+    std::string get(std::string key);
     void put(std::string key);
     void release(std::string key);
 };
 
 Cache::Cache(int size) {
     max_size = size;
+    hits = 0;
 }
 
-void Cache::get(std::string key) {
+std::string Cache::get(std::string key) {
     std::unique_lock<std::mutex> lock(mutex);
     CacheEntry *entry;
     if (entries.find(key) != entries.end()) {
@@ -116,21 +132,25 @@ void Cache::get(std::string key) {
         while (entry->loading) {
             entry->cv.wait(lock);
         }
-        /* std::cerr << "hit!\n"; */
+        /* hits++; */
+        /* std::cout << "hit " << hits << std::endl; */
     } else {
-        keys.push_back(key);
-        auto it = keys.end();
-        entry = new CacheEntry(key, --it);
+        auto file_path = "/tmp/" + key + "-" + random_string(20);
+        entry = new CacheEntry(key, file_path);
         entries[key] = entry;
         entry->loading = true;
         entry->ref_cnt += 1;
+        evict_if_full(lock);
+        keys.push_back(key);
+        auto it = keys.end();
+        entry->position = --it;
         lock.unlock();
-        evict_if_full();
         entry->download(objsizebytes);
         lock.lock();
         entry->loading = false;
         entry->cv.notify_all();
     }
+    return entry->file_path;
 }
 
 void Cache::release(std::string key) {
@@ -142,8 +162,11 @@ void Cache::release(std::string key) {
     keys.push_back(key);
     auto it = keys.end();
     entry->position = --it;
-    lock.unlock();
-    evict_if_full();
+    if (entry->ref_cnt == 0) {
+        evict_cv.notify_one();
+    }
+    /* lock.unlock(); */
+    /* evict_if_full(); */
 }
 
 /* FIXME: The cache currently cannot handle simultaneous gets and puts to
@@ -160,29 +183,32 @@ void Cache::put(std::string key) {
         entry->position = --it;
         entry->dirty = true;
     } else {
+        entry = new CacheEntry(key, "/tmp/" + key); // TODO: change this to receive path from client
+        entries[key] = entry;
+        evict_if_full(lock);
         keys.push_back(key);
         auto it = keys.end();
-        entry = new CacheEntry(key, --it);
+        entry->position = --it;
         entry->memmap(-1);
-        entries[key] = entry;
         entry->dirty = true;
-        lock.unlock();
-        evict_if_full();
     }
 }
 
-void Cache::evict_if_full() {
-    std::unique_lock<std::mutex> lock(mutex);
-    if (keys.size() > max_size) {
-        for (auto &key : keys) {
-            CacheEntry *entry = entries[key];
-            if (entry->ref_cnt < 1) {
-                entries.erase(key);
-                keys.erase(entry->position);
-                lock.unlock();
-                delete entry; // should call destructor
-                return;
+void Cache::evict_if_full(std::unique_lock<std::mutex> &lock) {
+    if (keys.size() >= max_size) {
+        while (1) {
+            for (auto &key : keys) {
+                CacheEntry *entry = entries[key];
+                if (entry->ref_cnt < 1) {
+                    entries.erase(key);
+                    keys.erase(entry->position);
+                    lock.unlock();
+                    delete entry; // should call destructor
+                    lock.lock();
+                    return;
+                }
             }
+            evict_cv.wait(lock);
         }
     }
 }
@@ -283,22 +309,56 @@ void *worker_func (void *arg) {
         char op = data[0];
         std::string key = std::string(data + 1);
         /* std::cerr << "received key " << key << std::endl; */
+        std::string retmsg = "success";
         switch (op) {
             case 0:
-                cache->get(key);
+                retmsg = cache->get(key);
                 break;
-            case 1:
-                cache->release(key);
-                break;
+            case 1: // Nothing
+                /* cache->release(key); */
+                /* break; */
             case 2:
                 cache->put(key);
                 break;
+            default:
+                throw std::runtime_error("unsupported opcode" + std::to_string((int) op));
         }
 
         //  Send reply back to client
-        //  TODO: send back a string indicating the location of the file
-        zmq::message_t reply(8);
-        memcpy((void *) reply.data (), "success", 8);
+        int len = strlen(retmsg.c_str()) + 1;
+        zmq::message_t reply(len);
+        memcpy((void *) reply.data (), retmsg.c_str(), len);
+        socket.send(reply);
+    }
+    return (NULL);
+}
+
+void *releaser_func (void *arg) {
+    zmq::context_t *context = (zmq::context_t *) arg;
+
+    zmq::socket_t socket(*context, ZMQ_REP);
+    socket.bind("ipc:///tmp/local_cache_release");
+
+    while (true) {
+        //  Wait for next request from client
+        zmq::message_t request;
+        socket.recv(&request);
+
+        char *data = (char *) request.data();
+        char op = data[0];
+        std::string key = std::string(data + 1);
+
+        if (op != 1) {
+            throw std::runtime_error("unsupported opcode" + std::to_string((int) op));
+        }
+
+        cache->release(key);
+
+        //  Send reply back to client
+        std::string retmsg = "success";
+        int len = strlen(retmsg.c_str()) + 1;
+        zmq::message_t reply(len);
+        memcpy((void *) reply.data (), retmsg.c_str(), len);
         socket.send(reply);
     }
     return (NULL);
@@ -314,6 +374,7 @@ int main(int argc, char** argv)
             "Ex: cache <objsizebytes> <num_threads> <bucketname> <cache_size>\n" << std::endl;
         exit(1);
     }
+    srand(time(0));
 
     Aws::SDKOptions options;
     Aws::InitAPI(options);
@@ -352,6 +413,8 @@ int main(int argc, char** argv)
             pthread_t worker;
             pthread_create (&worker, NULL, worker_func, (void *) &context);
         }
+        pthread_t releaser;
+        pthread_create(&releaser, NULL, releaser_func, (void *) &context);
         //  Connect work threads to client threads via a queue
         zmq::proxy (clients, workers, NULL);
 

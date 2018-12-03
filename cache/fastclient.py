@@ -17,10 +17,10 @@ class FastClient(object):
         else:
             return self.__so_cached
 
-    def run_benchmark_pins(self, num):
+    def run_benchmark_pins(self, num, unique, d_ptr_s, d_ptr_f):
         so = self.so
-        so.run_benchmark_pins.arg_types = [ctypes.c_int];
-        return so.run_benchmark_pins(num)
+        so.run_benchmark_pins.arg_types = [ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_double)];
+        return so.run_benchmark_pins(num, unique, d_ptr_s, d_ptr_f)
 
     def run_benchmark_gets(self, num):
         so = self.so

@@ -22,16 +22,17 @@ NUM_KEYS = args.num_keys
 OUTPUT_NAME = "e{}_{}".format(int(math.log10(DATA_SIZE)), NUM_KEYS)
 bucket = "uric-cache-benchmarks"
 
-def read_keys_pin(prefix, size=DATA_SIZE, num_keys=10):
+def read_keys_pin(prefix, size=DATA_SIZE, num_keys=500, num_unique=10):
     fclient = FastClient(so_bucket="zehric-pywren-149")
     fclient.cache_so()
-    t = time.time()
-    # TODO: make this multithreaded so it can compete with the normal benchmarks
+    doubles_s = np.zeros(num_keys, np.float64)
+    doubles_f = np.zeros(num_keys, np.float64)
+    d_ptr_s = doubles_s.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+    d_ptr_f = doubles_f.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
 
-    fclient.run_benchmark_pins(num_keys)
+    fclient.run_benchmark_pins(num_keys, num_unique, d_ptr_s, d_ptr_f)
 
-    e = time.time()
-    return t,e,num_keys
+    return list(zip(doubles_s, doubles_f))
 
 def read_keys_get(prefix, size=DATA_SIZE, num_keys=10):
     fclient = FastClient(so_bucket="zehric-pywren-149")
@@ -54,23 +55,37 @@ def write_keys(prefix, size=DATA_SIZE, num_keys=10):
     return t,e,num_keys
 
 def profile_iops(results):
+    results = [x for y in results for x in y]
+    print(len(results))
     min_time = min(results, key=lambda x: x[0])[0]
     max_time = max(results, key=lambda x: x[1])[1]
     tot_time = (max_time - min_time)
 
-    bins = np.linspace(min_time, max_time, max_time - min_time)
+    bins = np.linspace(min_time, max_time, (max_time - min_time) * 10)
     #return bins, min_time, max_time
     iops = np.zeros(len(bins))
-
-    for start_time, end_time, num_ops in results:
-        start_bin, end_bin = np.searchsorted(bins, [int(start_time), int(end_time)])
-        iops[start_bin:((end_bin)+1)]  += num_ops/(end_time - start_time)
+    fail_cnt = 0
+    for start_time, end_time in results:
+        if end_time < 0:
+            fail_cnt += 1
+        start_bin, end_bin = np.searchsorted(bins, [round(start_time, 1), round(end_time, 1)])
+        # start_bin, end_bin = np.searchsorted(bins, [int(start_time), int(end_time)])
+        if end_bin == start_bin:
+            term = 10
+        else:
+            term = 1 / (end_bin - start_bin)
+        iops[start_bin:(end_bin+1)] += term
+    print("fail_cnt: {}".format(fail_cnt))
     return iops, bins
 
 # w = read_keys_get("poop", num_keys=10)
 # print(w[1] - w[0])
-# r = read_keys_pin("poop", num_keys=100)
-# print(r[1] - r[0])
+# r = read_keys_pin("poop", size=1e6, num_keys=500, num_unique=15)
+# avgs = []
+# for s, e in r:
+#     print(e - s)
+#     avgs.append(e - s)
+# print(np.average(avgs))
 # exit()
 
 
@@ -86,7 +101,7 @@ config['runtime']['s3_key'] = key
 pwex = pywren.standalone_executor(config=config)
 
 print("mapping {} keys of size {}".format(NUM_KEYS, DATA_SIZE))
-futures = pwex.map(lambda x: read_keys_pin(x, size=DATA_SIZE, num_keys=NUM_KEYS), range(25*36), extra_env=extra_env)
+futures = pwex.map(lambda x: read_keys_pin(x, size=DATA_SIZE, num_keys=NUM_KEYS, num_unique=12), range(25*36), extra_env=extra_env)
 
 pywren.wait(futures)
 
@@ -102,12 +117,11 @@ for i,f in enumerate(futures):
 print(len(results))
 if len(results) == 0:
     exit()
-print(results[0][1] - results[0][0])
 iops, bins = profile_iops(results)
 
 np.savez("s3iops_cache_read_{}".format(OUTPUT_NAME), iops=iops, bins=bins)
 
 plt.plot(bins - min(bins), iops)
-plt.ylabel("(read) IOPS/s")
-plt.xlabel("time")
+plt.ylabel("TPS")
+plt.xlabel("time (s)")
 plt.savefig('s3iops_cache_read_{}.png'.format(OUTPUT_NAME))
