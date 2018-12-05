@@ -135,7 +135,7 @@ std::string Cache::get(std::string key) {
         /* hits++; */
         /* std::cout << "hit " << hits << std::endl; */
     } else {
-        auto file_path = "/tmp/" + key + "-" + random_string(20);
+        auto file_path = "/tmp/" + random_string(20);
         entry = new CacheEntry(key, file_path);
         entries[key] = entry;
         entry->loading = true;

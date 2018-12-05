@@ -60,22 +60,26 @@ def profile_iops(results):
     min_time = min(results, key=lambda x: x[0])[0]
     max_time = max(results, key=lambda x: x[1])[1]
     tot_time = (max_time - min_time)
+    print(tot_time)
 
-    bins = np.linspace(min_time, max_time, (max_time - min_time) * 10)
+    bins = np.linspace(min_time, max_time, (max_time - min_time) * 20)
     #return bins, min_time, max_time
     iops = np.zeros(len(bins))
     fail_cnt = 0
+    hits = 0
     for start_time, end_time in results:
         if end_time < 0:
             fail_cnt += 1
-        start_bin, end_bin = np.searchsorted(bins, [round(start_time, 1), round(end_time, 1)])
+        start_bin, end_bin = np.searchsorted(bins, [round(start_time, 2), round(end_time, 2)])
         # start_bin, end_bin = np.searchsorted(bins, [int(start_time), int(end_time)])
         if end_bin == start_bin:
-            term = 10
+            hits += 1
+            term = 20
         else:
-            term = 1 / (end_bin - start_bin)
+            term = 1 / (end_time - start_time)
         iops[start_bin:(end_bin+1)] += term
-    print("fail_cnt: {}".format(fail_cnt))
+    print("fail count: {}".format(fail_cnt))
+    print("cache hits: {}".format(hits))
     return iops, bins
 
 # w = read_keys_get("poop", num_keys=10)

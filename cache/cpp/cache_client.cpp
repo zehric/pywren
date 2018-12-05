@@ -13,6 +13,7 @@ extern "C" {
     int run_benchmark_gets(int);
     int run_benchmark_pins(int, int, double *, double *);
     int run_benchmark_puts(int, long);
+    int pin_objects(long num_objects, const char** keys_, double *start_times_, double *finish_times_, int num_threads);
 }
 
 static std::mutex mutex;
@@ -21,6 +22,7 @@ static int num_tasks;
 static double *start_times;
 static double *finish_times;
 static int unique;
+static const char **keys;
 
 int get_task() {
     std::unique_lock<std::mutex> lock(mutex);
@@ -96,6 +98,80 @@ int run_benchmark_pins(int num, int unique_, double *start_times_, double *finis
     std::cout << "Creating threadpool of size: " << num_threads << std::endl;
     for (int i = 0; i < num_threads; i ++) {
         pthread_create (workers + i, NULL, pins_worker, &context);
+    }
+    for (int i = 0; i < num_threads; i++) {
+        pthread_join(workers[i], NULL);
+    }
+    return 0;
+}
+
+void *pin_objects_worker(void *arg) {
+    //  Prepare our context and socket
+    zmq::context_t *context = (zmq::context_t *) arg;
+    zmq::socket_t socket (*context, ZMQ_REQ);
+    socket.connect ("ipc:///tmp/local_cache");
+    zmq::socket_t rel_socket(*context, ZMQ_REQ);
+    rel_socket.connect("ipc:///tmp/local_cache_release");
+
+    int task;
+    while ((task = get_task()) < num_tasks) {
+        double *start = start_times + task;
+        double *finish = finish_times + task;
+        struct stat stat;
+        int fd;
+        long size;
+        void *data;
+
+        std::string key = std::string(keys[task]);
+        int len = strlen(key.c_str()) + 1;
+        zmq::message_t request (len + 1);
+        char *msg = (char *) request.data();
+        msg[0] = 0;
+        struct timespec start_t, finish_t;
+        clock_gettime(CLOCK_REALTIME, &start_t);
+        *start = start_t.tv_sec + ((double) start_t.tv_nsec / 1e9);
+        memcpy (msg + 1, key.c_str(), len);
+        socket.send (request);
+
+        //  Get the reply.
+        zmq::message_t reply;
+        socket.recv (&reply);
+
+        std::string path = std::string((char *) reply.data());
+        fd = open(path.c_str(), O_RDWR);
+        fstat(fd, &stat);
+        size = stat.st_size;
+        data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+
+        clock_gettime(CLOCK_REALTIME, &finish_t);
+        *finish = finish_t.tv_sec + ((double) finish_t.tv_nsec / 1e9);
+
+        munmap(data, size);
+        close(fd);
+        zmq::message_t request2(len + 1);
+        msg = (char *) request2.data();
+        msg[0] = 1;
+        memcpy (msg + 1, key.c_str(), len);
+        rel_socket.send (request2);
+        //  Get the reply.
+        rel_socket.recv (&reply);
+
+    }
+}
+
+int pin_objects(long num_objects, const char** keys_, double *start_times_, double *finish_times_, int num_threads)
+{
+    srand(time(0));
+    curr_task = 0;
+    num_tasks = num_objects;
+    start_times = start_times_;
+    finish_times = finish_times_;
+    keys = keys_;
+    zmq::context_t context (1);
+    pthread_t workers[num_threads];
+    std::cout << "Creating threadpool of size: " << num_threads << std::endl;
+    for (int i = 0; i < num_threads; i ++) {
+        pthread_create (workers + i, NULL, pin_objects_worker, &context);
     }
     for (int i = 0; i < num_threads; i++) {
         pthread_join(workers[i], NULL);
