@@ -66,7 +66,7 @@ def launch_instances(number, tgt_ami, aws_region, my_aws_key, instance_type,
                                                                     aws_region,
                                                                     availability_zone))
 
-    if fast_io:
+    if True:
         BlockDeviceMappings = [
             {
                 'DeviceName': '/dev/xvda',

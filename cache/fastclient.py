@@ -57,9 +57,15 @@ class FastClient(object):
 
 if __name__=='__main__':
     import numpy as np
+    import random
     fclient = FastClient(so_bucket="zehric-pywren-149")
     fclient.cache_so()
-    key_list=['broadcast_benchmark/19d65ee5c55b95aa2108ea41908dbe03395b8ee1', 'cache_client.so']
+    key_list = open('large_keys').read().split("\n")
+    random.shuffle(key_list)
+    key_list = key_list[:10]
+    # key_list=['broadcast_benchmark/002499955e221506c691b2686b91a147d9676f47', 'broadcast_benchmark/1638d13d1ad53c5bf037faf65f44bbfe1451bd0d',
+    #         'broadcast_benchmark/3f7befecbc140a8b98fc74915294c14e394c04d3', 'broadcast_benchmark/5ac14ba7d0678f07ba592cbf87b43af247ab23e2',
+    #         'broadcast_benchmark/8e86b6f32bd537c6e8b08c214935714ebfe156b5', 'broadcast_benchmark/b3b26fe56a98837a51501f7276330086d39908a6']
     doubles_s = np.zeros(len(key_list), np.float64)
     doubles_f = np.zeros(len(key_list), np.float64)
     d_ptr_s = doubles_s.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
@@ -68,5 +74,7 @@ if __name__=='__main__':
     for key in key_list:
         keys.append(ctypes.c_char_p(key.encode()))
 
-    fclient.pin_objects(keys, d_ptr_s, d_ptr_f, num_threads=len(keys))
-    print(list(zip(doubles_s, doubles_f)))
+    fclient.pin_objects(keys, d_ptr_s, d_ptr_f, num_threads=1)
+    results = (list(zip(doubles_s, doubles_f)))
+    for s, f in results:
+        print(f - s)

@@ -30,10 +30,14 @@ def initialize(args):
     NUM_KEYS = args.num_keys
     
     OUTPUT_NAME = lambda : "2exp{0}_{1}".format(int(np.log2(DATA_SIZE)), NUM_KEYS)
-    BENCHMARK_DIR = 'broadcast_benchmark'
-    FIGURE_DIR = 'broadcast/figures'
-    KEY_DIR = 'broadcast/key_data'
-    RESULT_DIR = 'broadcast/results'
+    #BENCHMARK_DIR = 'broadcast_benchmark'
+    BENCHMARK_DIR = 'broadcast_benchmark--{0}-{1}'.format(args.trial_id, args.trial_number)
+    #FIGURE_DIR = 'broadcast/figures'
+    #KEY_DIR = 'broadcast/key_data'
+    #RESULT_DIR = 'broadcast/results'
+    FIGURE_DIR = '{0}/figures'.format(BENCHMARK_DIR)
+    KEY_DIR = '{0}/key_data'.format(BENCHMARK_DIR)
+    RESULT_DIR = '{0}/results'.format(BENCHMARK_DIR)
     for d in [FIGURE_DIR, KEY_DIR, RESULT_DIR]:
         if not os.path.exists(d):
             os.makedirs(d)
@@ -112,7 +116,9 @@ def terminate_instance_group():
     subprocess.check_output("pywren standalone terminate_instances", shell=True)
     # terminate_instances(globals()['__ec2standalone_inst_list'])
     # globals()['__ec2standalone_inst_list'] = []      
-def benchmark_broadcast(get_function,
+def benchmark_broadcast(trial_number,
+                        trial_id,
+                        get_function,
                         keys,
                         num_instances,
                         num_cores_per_instance,
@@ -122,13 +128,14 @@ def benchmark_broadcast(get_function,
                         terminate_after=True,
                         **unused):
     assert num_cores_per_instance in STANDALONE_INSTANCES
-    result_name = "{0}__{1}__{2}__{3}__{4}__{5}__{6}__{7}".format(get_function.__name__, len(keys), 
+    if get_function is not None:
+        result_name = "{0}__{1}__{2}__{3}__{4}__{5}__{6}__{7}".format(get_function.__name__, len(keys), 
                     DATA_SIZE, num_instances, STANDALONE_INSTANCES[num_cores_per_instance]['name'],
                     num_cores_per_instance, num_keys_per_core, gen_experiment.__name__)
-    if os.path.exists("{0}/{1}.npy".format(RESULT_DIR,result_name)):
-        raise Exception("Results already present.")
+        if os.path.exists("{0}/{1}.npy".format(RESULT_DIR,result_name)):
+            raise Exception("Results already present.")
         
-    print(pcolor.OKBLUE+
+        print(pcolor.OKBLUE+
           "Running broadcast benchmark with parameters:"
           "\n  - function:         {0}"
           "\n  - # keys:           {1}"
@@ -138,9 +145,11 @@ def benchmark_broadcast(get_function,
           "\n  - # cores/instance: {5}"
           "\n  - # keys/core:      {6}"
           "\n  - experiment:       {7}"
+          "\n  - trial id / #:     {8}-{9}"
           "".format(get_function.__name__, len(keys), DATA_SIZE,
                     num_instances, STANDALONE_INSTANCES[num_cores_per_instance],
-                    num_cores_per_instance, num_keys_per_core, gen_experiment.__name__)
+                    num_cores_per_instance, num_keys_per_core, gen_experiment.__name__,
+                    trial_id, trial_number)
          + pcolor.ENDC)
     print("-"*20)
     
@@ -152,9 +161,15 @@ def benchmark_broadcast(get_function,
         print(pcolor.OKGREEN+"Finished launching."+pcolor.ENDC)
     else:
         print(pcolor.OKGREEN+"Instances already launched."+pcolor.ENDC)
+    if get_function is None:
+        print("sleeping")
+       # sleep(120)
+        return
+
     benchmark_executors = get_executors(num_instances,num_cores_per_instance)
     
-    key_mapping, used_keys, unused_keys = gen_experiment(num_instances,
+    key_mapping, used_keys, unused_keys = gen_experiment(trial_number,
+                                                         num_instances,
                                                          num_cores_per_instance,
                                                          num_keys_per_core,
                                                          keys)
@@ -176,6 +191,7 @@ def benchmark_broadcast(get_function,
         terminate_instance_group()
 
     ret_dict = {}
+    ret_dict['trial_number'] = trial_number
     ret_dict['total_time'] = (t,e)
     ret_dict['function'] = get_function.__name__
     ret_dict['num_keys'] = len(keys)
@@ -219,9 +235,12 @@ def main():
     parser.add_argument('gen_experiment', type=str)
     parser.add_argument('launch_group', type=str)
     parser.add_argument('terminate_after', type=str)
-    
+    parser.add_argument('trial_id', type=str)  
+    parser.add_argument('trial_number', type=int)
     get_function_mapping = {'read_keys_no_cache': read_keys_no_cache,
-                            'read_keys_with_cache':read_keys_with_cache,}
+                            'read_keys_with_cache':read_keys_with_cache,
+                            'launch':None}
+   
     gen_experiment_mapping = {'gen_fixed_experiment':gen_fixed_experiment,
                               'gen_rand_experiment':gen_rand_experiment,
                               'gen_clustered_rand_experiment':gen_clustered_rand_experiment,}
@@ -236,8 +255,9 @@ def main():
     initialize(args)
     
     print()
+    #benchmark_broadcast(keys=KEYS, **vars(args))
     benchmark_broadcast(keys=KEYS, **vars(args))
-    
+
     
 if __name__ == '__main__':
     main()

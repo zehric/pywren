@@ -31,7 +31,20 @@ flatten = lambda l: [item for sublist in l for item in sublist]
 
 
 
-def gen_fixed_experiment(num_instances, num_cores_per_instance, num_keys_per_core, keys):
+#def gen_fixed_experiment(num_instances, num_cores_per_instance, num_keys_per_core, keys):
+ #   key_mapping = [[[] for j in range(num_cores_per_instance)] for i in range(num_instances)]
+ #   used_keys = set()
+ #   unused_keys = set(keys)
+ #   for i in range(num_instances):
+ #       for k in range(num_keys_per_core):
+ #           key_k = keys[(i*num_keys_per_core+k) % len(keys)]
+ #           used_keys.add(key_k)
+ #           if key_k in unused_keys: unused_keys.remove(key_k)
+ #           for j in range(num_cores_per_instance):
+ #               key_mapping[i][j].append(key_k)
+ #   return key_mapping, used_keys, unused_keys
+def gen_fixed_experiment(num_trial, num_instances, num_cores_per_instance, num_keys_per_core, keys):
+    rng = np.random.RandomState(1005 + num_trial)
     key_mapping = [[[] for j in range(num_cores_per_instance)] for i in range(num_instances)]
     used_keys = set()
     unused_keys = set(keys)
@@ -42,11 +55,20 @@ def gen_fixed_experiment(num_instances, num_cores_per_instance, num_keys_per_cor
             if key_k in unused_keys: unused_keys.remove(key_k)
             for j in range(num_cores_per_instance):
                 key_mapping[i][j].append(key_k)
+    key_mapping = np.array(key_mapping)
+    for i in range(num_instances):
+        for j in range(num_cores_per_instance):
+            swap = j % num_keys_per_core
+            a = key_mapping[i][j][0]
+            b = key_mapping[i][j][swap]
+            key_mapping[i][j][0] = b
+            key_mapping[i][j][swap] = a
+            rng.shuffle(key_mapping[i][j][1:])
     return key_mapping, used_keys, unused_keys
-def gen_rand_experiment(num_instances, num_cores_per_instance, num_keys_per_core, keys, key_dist=None):
+def gen_rand_experiment(num_trial, num_instances, num_cores_per_instance, num_keys_per_core, keys, key_dist=None):
     if key_dist is not None:
         assert len(key_dist) == len(keys)
-    rng = np.random.RandomState(101)
+    rng = np.random.RandomState(1001+num_trial)
     key_mapping = rng.choice(keys, 
                              size=num_instances*num_keys_per_core*num_cores_per_instance,
                              replace=True,
@@ -57,13 +79,13 @@ def gen_rand_experiment(num_instances, num_cores_per_instance, num_keys_per_core
     used_keys = set(used_keys)
     unused_keys = set(unused_keys)
     return key_mapping, used_keys, unused_keys
-def gen_clustered_rand_experiment(num_instances, num_cores_per_instance, num_keys_per_core, keys):
-    rng = np.random.RandomState(102)
+def gen_clustered_rand_experiment(num_trial, num_instances, num_cores_per_instance, num_keys_per_core, keys):
+    rng = np.random.RandomState(1002+num_trial)
     selected_keys = rng.randint(len(keys), size=max(1,len(keys)//10))
     key_dist = np.abs(rng.randn(len(keys))) + 1e-3
     key_dist[selected_keys] += 2
     key_dist /= sum(key_dist)
-    return gen_rand_experiment(num_instances, num_cores_per_instance, num_keys_per_core, keys, key_dist)
+    return gen_rand_experiment(num_trial, num_instances, num_cores_per_instance, num_keys_per_core, keys, key_dist)
 
 
 
@@ -273,7 +295,7 @@ def read_keys_no_cache(bucket, instance_id, key_list):
     ret_dict['time_all_te'] = (t1,e)
     ret_dict['time_client_te'] = (t1,t2)
     ret_dict['n_tries'] = num_tries_list
-    ret_dict['key'] = key
+    ret_dict['key'] = key_list
     ret_dict['instance_id'] = instance_id
     
     return ret_dict

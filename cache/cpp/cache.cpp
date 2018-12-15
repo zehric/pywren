@@ -22,6 +22,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <zmq.hpp>
+#include <sstream>
 
 #define ALLOCATION_TAG "CACHE"
 int get_object(void* buffer, long buffer_size, const char* bucket, const char* key);
@@ -29,6 +30,19 @@ int put_object(void* buffer, long buffer_size, const char* bucket, const char* k
 
 static char *bucket;
 static long objsizebytes;
+
+static Aws::S3::S3Client *s3_client;
+
+static std::mutex loglock;
+static std::ofstream logfile;
+static std::string logname;
+
+static void append_log(const std::string& msg) {
+    std::unique_lock<std::mutex> lock(loglock);
+    logfile.open(logname, std::ios_base::app);
+    logfile << msg;
+    logfile.close();
+}
 
 static std::string random_string(int size) {
     std::string str;
@@ -108,6 +122,7 @@ private:
     std::unordered_map<std::string, CacheEntry *> entries;
     int max_size;
     int hits;
+    int misses;
     std::mutex mutex;
     std::condition_variable evict_cv;
     void evict_if_full(std::unique_lock<std::mutex>& lock);
@@ -121,6 +136,7 @@ public:
 Cache::Cache(int size) {
     max_size = size;
     hits = 0;
+    misses = 0;
 }
 
 std::string Cache::get(std::string key) {
@@ -132,10 +148,10 @@ std::string Cache::get(std::string key) {
         while (entry->loading) {
             entry->cv.wait(lock);
         }
-        /* hits++; */
-        /* std::cout << "hit " << hits << std::endl; */
+        hits++;
+        /* append_log(key + " hit " + std::to_string(hits) + "\n"); */
     } else {
-        auto file_path = "/tmp/" + random_string(20);
+        auto file_path = "/tmp/entry-" + random_string(20);
         entry = new CacheEntry(key, file_path);
         entries[key] = entry;
         entry->loading = true;
@@ -149,6 +165,8 @@ std::string Cache::get(std::string key) {
         lock.lock();
         entry->loading = false;
         entry->cv.notify_all();
+        misses++;
+        /* append_log(key + " miss " + std::to_string(misses) + "\n"); */
     }
     return entry->file_path;
 }
@@ -200,6 +218,7 @@ void Cache::evict_if_full(std::unique_lock<std::mutex> &lock) {
             for (auto &key : keys) {
                 CacheEntry *entry = entries[key];
                 if (entry->ref_cnt < 1) {
+                    /* append_log("evict " + key + "\n"); */
                     entries.erase(key);
                     keys.erase(entry->position);
                     lock.unlock();
@@ -214,26 +233,35 @@ void Cache::evict_if_full(std::unique_lock<std::mutex> &lock) {
 }
 
 
-typedef Aws::S3::S3Client S3Client;
-
-int _put_object_internal(Aws::S3::S3Client &client, char* &buffer, long buffer_size, const char* bucket, const char* key) {
+int put_object(void* buffer, long buffer_size, const char* bucket, const char* key) {
     Aws::S3::Model::PutObjectRequest request;
     auto bstream = new boost::interprocess::bufferstream((char*) buffer, buffer_size);
     std::shared_ptr<Aws::IOStream> objBuffer =  std::shared_ptr<Aws::IOStream>(bstream);
     request.WithBucket(bucket).WithKey(key).SetBody(objBuffer);
-    auto put_object_response = client.PutObject(request);
+
+    struct timespec start_t, finish_t;
+    clock_gettime(CLOCK_REALTIME, &start_t);
+    auto put_object_response = s3_client->PutObject(request);
+    clock_gettime(CLOCK_REALTIME, &finish_t);
+    double start = start_t.tv_sec + ((double) start_t.tv_nsec / 1e9);
+    double finish = finish_t.tv_sec + ((double) finish_t.tv_nsec / 1e9);
+
+    /* append_log("put " + std::string(key) + ": " + std::to_string(finish - start) + "\n"); */
     if (!put_object_response.IsSuccess())
     {
-        std::cout << "PutObject error: " <<
+        std::stringstream msg;
+        msg << "PutObject error: " <<
             put_object_response.GetError().GetExceptionName() << " " <<
             put_object_response.GetError().GetMessage() << std::endl;
+        std::cout << msg;
+        append_log(msg.str());
         return -1;
     } else {
         return 0;
     }
 }
 
-int _get_object_internal(Aws::S3::S3Client &client, char* &buffer, long buffer_size, const char* bucket, const char* key) {
+int get_object(void* buffer, long buffer_size, const char* bucket, const char* key) {
 
     Aws::S3::Model::GetObjectRequest request;
     request.WithBucket(bucket).WithKey(key);
@@ -242,36 +270,27 @@ int _get_object_internal(Aws::S3::S3Client &client, char* &buffer, long buffer_s
         {
             return Aws::New<boost::interprocess::bufferstream>(ALLOCATION_TAG, (char*) buffer, buffer_size);
         });
-    auto get_object_response = client.GetObject(request);
+    struct timespec start_t, finish_t;
+    clock_gettime(CLOCK_REALTIME, &start_t);
+    auto get_object_response = s3_client->GetObject(request);
+    clock_gettime(CLOCK_REALTIME, &finish_t);
+    double start = start_t.tv_sec + ((double) start_t.tv_nsec / 1e9);
+    double finish = finish_t.tv_sec + ((double) finish_t.tv_nsec / 1e9);
+
+    /* append_log("get " + std::string(key) + ": " + std::to_string(finish - start) + "\n"); */
     if (!get_object_response.IsSuccess())
     {
-        std::cout << "GetObject error: " << (int) get_object_response.GetError().GetResponseCode() << " " << get_object_response.GetError().GetMessage() << std::endl;
-        std::cout << "BUCKET" << bucket  << std::endl;
-        std::cout << "key" << key << std::endl;
+        std::stringstream msg;
+        msg << "GetObject error: " << (int) get_object_response.GetError().GetResponseCode() <<
+            " " << get_object_response.GetError().GetMessage() << std::endl <<
+            "BUCKET " << bucket << std::endl <<
+            "key " << key << std::endl;
+        std::cout << msg;
+        append_log(msg.str());
         return -1;
     } else {
         return 0;
     }
-}
-
-int put_object(void* buffer, long buffer_size, const char* bucket, const char* key) {
-    auto region = Aws::Region::US_WEST_2;
-    Aws::Client::ClientConfiguration cfg;
-    cfg.region = region;
-    Aws::S3::S3Client s3_client(cfg);
-    char* char_buffer = (char*) buffer;
-    int ret = _put_object_internal(s3_client, char_buffer, buffer_size, bucket, key);
-    return ret;
-}
-
-int get_object(void* buffer, long buffer_size, const char* bucket, const char* key) {
-    auto region = Aws::Region::US_WEST_2;
-    Aws::Client::ClientConfiguration cfg;
-    cfg.region = region;
-    Aws::S3::S3Client s3_client(cfg);
-    char* char_buffer = (char*) buffer;
-    int ret = _get_object_internal(s3_client, char_buffer, buffer_size, bucket, key);
-    return ret;
 }
 
 void start_api() {
@@ -295,6 +314,7 @@ void stop_api() {
 static Cache *cache;
 
 void *worker_func (void *arg) {
+
     zmq::context_t *context = (zmq::context_t *) arg;
 
     zmq::socket_t socket(*context, ZMQ_REP);
@@ -375,6 +395,7 @@ int main(int argc, char** argv)
         exit(1);
     }
     srand(time(0));
+    logname = "/tmp/cache-" + random_string(20) + ".log";
 
     Aws::SDKOptions options;
     Aws::InitAPI(options);
@@ -388,6 +409,11 @@ int main(int argc, char** argv)
         std::cout << "num_threads " << argv[2] << std::endl;
         std::cout << "bucket " << argv[3] << std::endl;
         std::cout << "cache size " << argv[4] << std::endl;
+
+        auto region = Aws::Region::US_WEST_2;
+        Aws::Client::ClientConfiguration cfg;
+        cfg.region = region;
+        s3_client = new Aws::S3::S3Client(cfg);
 
         /* for (int i = 0; i < 5; i++) { */
         /*     std::string path = "/tmp/" + std::to_string(i); */
@@ -429,6 +455,7 @@ int main(int argc, char** argv)
         /* } */
 
         delete cache;
+        delete s3_client;
     }
 
     Aws::ShutdownAPI(options);
