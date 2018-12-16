@@ -136,7 +136,7 @@ config['runtime']['s3_key'] = key
 
 pwex = pywren.standalone_executor(config=config)
 
-futures = pwex.map(lambda x: read_keys(x, num_keys=NUM_KEYS), range(36*25), extra_env=extra_env)
+futures = pwex.map(lambda x: write_keys(x, num_keys=NUM_KEYS), range(36*25), extra_env=extra_env)
 
 pywren.wait(futures)
 
@@ -154,9 +154,9 @@ if len(results) == 0:
     exit()
 iops, bins = profile_iops(results)
 
-np.savez("s3iops_cpp_read_{}".format(OUTPUT_NAME), iops=iops, bins=bins)
+np.savez("s3iops_cpp_write_{}".format(OUTPUT_NAME), iops=iops, bins=bins)
 
 plt.plot(bins - min(bins), iops)
 plt.ylabel("TPS")
 plt.xlabel("time (s)")
-plt.savefig('s3iops_cpp_read_{}.png'.format(OUTPUT_NAME))
+plt.savefig('s3iops_cpp_write_{}.png'.format(OUTPUT_NAME))
