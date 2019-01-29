@@ -57,14 +57,15 @@ def get_object(client, key, bucket):
     backoff = 1
     t = time.time()
     while True:
-        try:
-            client.get_object(Key=key, Bucket=BUCKET)['Body'].read()
-            e = time.time()
-            return (t, e)
-        except:
-            return (t, -1.0)
-            time.sleep(backoff)
-            backoff *= 2
+        # try:
+        data = client.get_object(Key=key, Bucket=bucket)['Body'].read()
+        e = time.time()
+        return (t, e)
+        # except e:
+        #     raise e
+        #     return (t, -1.0)
+        #     time.sleep(backoff)
+        #     backoff *= 2
 
 def write_keys_threaded(prefix, size=DATA_SIZE, num_keys=10, threads=10):
     write_bytes = b"\x00"+os.urandom(int(size))+ b"\x00"
@@ -90,6 +91,7 @@ def read_keys_threaded(prefix, num_keys=10, threads=10):
     futures = []
     for i in range(num_keys):
         key = "{0}_{1}".format(prefix, i)
+        sha1 = hashlib.sha1()
         key = sha1.hexdigest()
         futures.append(executor.submit(get_object, client, key, BUCKET))
     fs.wait(futures)
@@ -141,7 +143,8 @@ def profile_iops(results):
     min_time = min(results, key=lambda x: x[0])[0]
     max_time = max(results, key=lambda x: x[1])[1]
     tot_time = (max_time - min_time)
-    print(tot_time)
+    print(min_time)
+    print(max_time)
 
     bins = np.linspace(min_time, max_time, (max_time - min_time) * 10)
     # bins = np.linspace(min_time, max_time, (max_time - min_time))
@@ -178,7 +181,7 @@ config['runtime']['s3_key'] = key
 pwex = pywren.standalone_executor(config=config)
 
 if METHOD == "threaded":
-    futures = pwex.map(lambda x: write_keys_threaded(x, num_keys=NUM_KEYS, threads=10), range(36*25), extra_env=extra_env)
+    futures = pwex.map(lambda x: read_keys_threaded(x, num_keys=NUM_KEYS, threads=10), range(36*25), extra_env=extra_env)
 elif METHOD == "threaded10":
     futures = pwex.map(lambda x: write_keys_threaded(x, num_keys=NUM_KEYS, threads=10), range(36*25), extra_env=extra_env)
 elif METHOD == "async":
@@ -208,9 +211,9 @@ if len(results) == 0:
     exit()
 iops, bins = profile_iops(results)
 
-np.savez("s3iops_pure_python_write_{}".format(OUTPUT_NAME), iops=iops, bins=bins)
+np.savez("s3iops_pure_python_read_{}".format(OUTPUT_NAME), iops=iops, bins=bins)
 
 plt.plot(bins - min(bins), iops)
-plt.ylabel("(write) IOPS/s")
+plt.ylabel("(read) IOPS/s")
 plt.xlabel("time")
-plt.savefig('s3iops_pure_python_write_{}.png'.format(OUTPUT_NAME))
+plt.savefig('s3iops_pure_python_read_{}.png'.format(OUTPUT_NAME))

@@ -5,8 +5,8 @@ import boto3
 import io
 import os
 import hashlib
+import botocore.session
 import aiobotocore
-import botocore
 import asyncio
 import time
 import math
@@ -14,55 +14,45 @@ import pywren
 import concurrent.futures as fs
 
 parser = argparse.ArgumentParser(description="S3 IO benchmarks")
-parser.add_argument('data_size', type=str)
+parser.add_argument('data_size', type=float)
 parser.add_argument('num_keys', type=int)
 parser.add_argument('method', type=str)
 
 # DATA_SIZE = 134217728
-BUCKET = "uric-cache-benchmarks"
 args = parser.parse_args()
-DATA_SIZE = float(args.data_size)
+DATA_SIZE = args.data_size
 NUM_KEYS = args.num_keys
 METHOD = args.method
-OUTPUT_NAME = "{}_{}_{}".format(METHOD, args.data_size, NUM_KEYS)
+OUTPUT_NAME = "{}_e{}_{}".format(METHOD, int(math.log10(DATA_SIZE)), NUM_KEYS)
 
 def write_keys(prefix, size=DATA_SIZE, num_keys=10):
     write_bytes = b"\x00"+os.urandom(int(size))+ b"\x00"
     client = boto3.client('s3')
-    times = []
+    t = time.time()
     for i in range(num_keys):
-        key = "{0}_{1}".format(prefix, i)
+        key = "{0}_{1}_{2}".format(prefix, i, os.urandom(256))
         sha1 = hashlib.sha1()
         sha1.update(key.encode())
         key = sha1.hexdigest()
-        t = time.time()
-        client.put_object(Key=key, Body=write_bytes, Bucket=BUCKET)
-        e = time.time()
-        times.append((t, e))
-    return times
+        client.put_object(Key=key, Body=write_bytes, Bucket="uric-cache-benchmarks")
+    e = time.time()
+    return t,e,num_keys
 
 def put_object(client, key, data, bucket):
     backoff = 1
-    t = time.time()
     while True:
         try:
-            client.put_object(Key=key, Body=data, Bucket=BUCKET)
-            e = time.time()
-            return (t, e)
+            return client.put_object(Key=key, Body=data, Bucket="uric-cache-benchmarks")
         except:
             time.sleep(backoff)
             backoff *= 2
 
 def get_object(client, key, bucket):
     backoff = 1
-    t = time.time()
     while True:
         try:
-            client.get_object(Key=key, Bucket=BUCKET)['Body'].read()
-            e = time.time()
-            return (t, e)
+            return client.get_object(Key=key, Bucket="uric-cache-benchmarks")['Body'].read()
         except:
-            return (t, -1.0)
             time.sleep(backoff)
             backoff *= 2
 
@@ -73,15 +63,15 @@ def write_keys_threaded(prefix, size=DATA_SIZE, num_keys=10, threads=10):
     client = boto3.client('s3')
     futures = []
     for i in range(num_keys):
-        key = "{0}_{1}".format(prefix, i)
+        key = "{0}_{1}_{2}".format(prefix, i, os.urandom(256))
         sha1 = hashlib.sha1()
         sha1.update(key.encode())
         key = sha1.hexdigest()
-        futures.append(executor.submit(put_object, client, key, write_bytes, BUCKET))
+        futures.append(executor.submit(put_object, client, key, write_bytes, "uric-cache-benchmarks"))
     fs.wait(futures)
-    times = [f.result() for f in futures]
+    [f.result() for f in futures]
     e = time.time()
-    return times
+    return t,e,num_keys
 
 def read_keys_threaded(prefix, num_keys=10, threads=10):
     t = time.time()
@@ -89,34 +79,33 @@ def read_keys_threaded(prefix, num_keys=10, threads=10):
     client = boto3.client('s3')
     futures = []
     for i in range(num_keys):
-        key = "{0}_{1}".format(prefix, i)
+        key = "{0}_{1}_{2}".format(prefix, i, os.urandom(256))
         key = sha1.hexdigest()
-        futures.append(executor.submit(get_object, client, key, BUCKET))
+        futures.append(executor.submit(get_object, client, key, "uric-cache-benchmarks"))
     fs.wait(futures)
-    times = [f.result() for f in futures]
+    arr = [f.result() for f in futures]
     e = time.time()
-    return times
+    return t,e,num_keys
 
 async def put_object_backoff(client, key, bucket, data, backoff_start=1):
     backoff = backoff_start
-    t = time.time()
     while True:
         try:
-            await client.put_object(Key=key, Bucket=bucket, Body=data)
-            e = time.time()
-            return (t, e)
+            response_task = await client.put_object(Key=key, Bucket=bucket, Body=data)
+            break
         except:
-            return (t, -1.0)
             await asyncio.sleep(backoff)
             backoff *= 2
+    return response_task
             
-async def _write_keys_async(loop, keys_data, bucket=BUCKET):
+async def _write_keys_async(loop, keys_data, bucket="uric-cache-benchmarks"):
     session = aiobotocore.get_session(loop=loop)
     async with session.create_client('s3', use_ssl=False, verify=False, region_name='us-west-2') as client:
         tasks = []
+        outb = io.BytesIO()
         for key, data in keys_data:
             tasks.append(asyncio.ensure_future(put_object_backoff(client, key, bucket, data)))
-        return await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks)
     return 
 
 def write_keys_async(prefix, size=DATA_SIZE, num_keys=100):
@@ -125,50 +114,40 @@ def write_keys_async(prefix, size=DATA_SIZE, num_keys=100):
     keys_data = []
     t = time.time()
     for i in range(num_keys):
-        key = "{0}_{1}".format(prefix, i)
+        key = "{0}_{1}_{2}".format(prefix, i, os.urandom(256))
         sha1 = hashlib.sha1()
         sha1.update(key.encode())
         key = sha1.hexdigest()
         keys_data.append((key, write_bytes))
     loop = asyncio.get_event_loop()
-    times = loop.run_until_complete(_write_keys_async(loop, keys_data))
+    loop.run_until_complete(_write_keys_async(loop, keys_data))
     e = time.time() 
-    return times
+    return t,e,num_keys
 
 def profile_iops(results):
-    results = [x for y in results for x in y]
-    print(len(results))
     min_time = min(results, key=lambda x: x[0])[0]
     max_time = max(results, key=lambda x: x[1])[1]
     tot_time = (max_time - min_time)
-    print(tot_time)
 
-    bins = np.linspace(min_time, max_time, (max_time - min_time) * 10)
-    # bins = np.linspace(min_time, max_time, (max_time - min_time))
+    bins = np.linspace(min_time, max_time, max_time - min_time)
     #return bins, min_time, max_time
     iops = np.zeros(len(bins))
 
-    fail_cnt = 0
-    for start_time, end_time in results:
-        if end_time < 0:
-            fail_cnt += 1
-        start_bin, end_bin = np.searchsorted(bins, [round(start_time, 1), round(end_time, 1)])
-        # start_bin, end_bin = np.searchsorted(bins, [int(start_time), int(end_time)])
-        iops[start_bin:(end_bin+1)] += (1 / (end_time - start_time))
-    print("fail count: {}".format(fail_cnt))
+    for start_time, end_time, num_ops in results:
+        start_bin, end_bin = np.searchsorted(bins, [int(start_time), int(end_time)])
+        iops[start_bin:((end_bin)+1)]  += num_ops/(end_time - start_time)
     return iops, bins
 
 
-# w = write_keys_threaded("poop", num_keys=100, threads=100)
-# print(w)
-# exit()
-# r = write_keys_async("poop", num_keys=100)
+# w = write_keys_threaded("poop", num_keys=10, threads=10)
+# print(w[1] - w[0])
+# r = write_keys_async("poop", num_keys=10)
 # print(r[1] - r[0])
 # exit()
 
 session = botocore.session.get_session()
-extra_env = {"AWS_DEFAULT_REGION": "us-west-2", "AWS_ACCESS_KEY_ID": session.get_credentials().access_key, "AWS_SECRET_ACCESS_KEY": session.get_credentials().secret_key}
 
+extra_env = {"AWS_DEFAULT_REGION": "us-west-2", "AWS_ACCESS_KEY_ID": session.get_credentials().access_key, "AWS_SECRET_ACCESS_KEY": session.get_credentials().secret_key}
 
 config = pywren.wrenconfig.default()
 config['runtime']['s3_bucket'] = 'numpywrenpublic'
@@ -178,18 +157,9 @@ config['runtime']['s3_key'] = key
 pwex = pywren.standalone_executor(config=config)
 
 if METHOD == "threaded":
-    futures = pwex.map(lambda x: write_keys_threaded(x, num_keys=NUM_KEYS, threads=10), range(36*25), extra_env=extra_env)
-elif METHOD == "threaded10":
-    futures = pwex.map(lambda x: write_keys_threaded(x, num_keys=NUM_KEYS, threads=10), range(36*25), extra_env=extra_env)
-elif METHOD == "async":
-    futures = pwex.map(lambda x: write_keys_async(x, num_keys=NUM_KEYS), range(36*25), extra_env=extra_env)
-elif METHOD == "test_t":
-    futures = pwex.map(lambda x: write_keys_threaded(x, num_keys=NUM_KEYS, threads=NUM_KEYS), range(36), extra_env=extra_env)
-elif METHOD == "test_a":
-    futures = pwex.map(lambda x: write_keys_async(x, num_keys=NUM_KEYS), range(36), extra_env=extra_env)
+    futures = pwex.map(lambda x: write_keys_threaded(x, num_keys=NUM_KEYS, threads=NUM_KEYS), range(36*25), extra_env=extra_env)
 else:
-    print("Input a valid method")
-    exit()
+    futures = pwex.map(lambda x: write_keys_async(x, num_keys=NUM_KEYS), range(36*25), extra_env=extra_env)
 
 
 pywren.wait(futures)
